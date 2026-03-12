@@ -1,0 +1,26 @@
+.pf-v5-c-page {
+    --pf-v5-c-page__main--PaddingTop: 0;
+    min-height: 100vh;
+}
+
+.pf-v5-c-page__sidebar {
+    --pf-v5-c-page__sidebar--Width: 250px;
+    --pf-v5-c-page__sidebar--BackgroundColor: var(--pf-global--BackgroundColor--dark-100);
+}
+
+.pf-v5-c-nav__link {
+    --pf-v5-c-nav__link--Color: var(--pf-global--Color--light-100);
+    --pf-v5-c-nav__link--hover--Color: var(--pf-global--Color--light-100);
+    --pf-v5-c-nav__link--active--Color: var(--pf-global--Color--light-100);
+    --pf-v5-c-nav__link--focus--Color: var(--pf-global--Color--light-100);
+    padding: 12px 24px !important;
+}
+
+.pf-v5-c-nav__link.pf-m-current {
+    --pf-v5-c-nav__link--m-current--BackgroundColor: var(--pf-global--BackgroundColor--dark-400);
+}
+
+.pf-v5-c-page__main-section {
+    --pf-v5-c-page__main-section--PaddingTop: 0;
+    background-color: var(--pf-global--BackgroundColor--200);
+}

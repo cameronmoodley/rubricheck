@@ -1,0 +1,4 @@
+FROM postgres:15-alpine
+
+# RubriCheck uses Prisma for schema - no init script needed.
+# Postgres starts with empty DB; backend runs prisma db push on startup.

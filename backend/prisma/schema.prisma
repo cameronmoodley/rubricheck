@@ -1,0 +1,141 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String    @unique
+  password     String
+  name         String
+  role         UserRole  @default(TEACHER)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime  @default(now()) @db.Timestamptz(6)
+  classes      Class[]
+
+  @@map("tbl_users")
+}
+
+enum UserRole {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+model Rubric {
+  id              String       @id(map: "rubrics_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title           String
+  criteria        Json
+  created_at      DateTime     @default(now()) @db.Timestamptz(6)
+  tbl_submissions Submission[]
+
+  @@map("tbl_rubrics")
+}
+
+model Submission {
+  id          String            @id(map: "submissions_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rubric_id   String            @db.Uuid
+  status      submission_status @default(PENDING)
+  created_at  DateTime          @default(now()) @db.Timestamptz(6)
+  tbl_grades  Grade[]
+  tbl_papers  Paper[]
+  tbl_rubrics Rubric            @relation(fields: [rubric_id], references: [id], onUpdate: NoAction, map: "submissions_rubric_id_fkey")
+  submission_meta SubmissionMeta?
+
+  @@index([status, created_at(sort: Desc)], map: "idx_tbl_submissions_status_created")
+  @@map("tbl_submissions")
+}
+
+model SubmissionMeta {
+  submission_id  String     @id @db.Uuid
+  rubric_path    String     @default("")
+  question_path  String     @default("")
+  upload_type    String     @default("papers")
+  created_at     DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime   @default(now()) @db.Timestamptz(6)
+  submission     Submission @relation(fields: [submission_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@map("tbl_submission_meta")
+}
+
+model Paper {
+  id                String     @id(map: "papers_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  submission_id     String     @db.Uuid
+  subject_id        String?    @db.Uuid
+  student_name      String
+  original_filename String?
+  mime_type         String?
+  storage_path      String
+  created_at        DateTime   @default(now()) @db.Timestamptz(6)
+  tbl_grades        Grade?
+  tbl_submissions   Submission @relation(fields: [submission_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "papers_submission_id_fkey")
+  tbl_subjects      Subject?   @relation(fields: [subject_id], references: [id], onUpdate: NoAction, map: "papers_subject_id_fkey")
+
+  @@index([submission_id], map: "idx_tbl_papers_submission")
+  @@map("tbl_papers")
+}
+
+model Subject {
+  id            String         @id(map: "subjects_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name          String         @unique(map: "subjects_name_key")
+  code          String?        @unique(map: "subjects_code_key")
+  created_at    DateTime       @default(now()) @db.Timestamptz(6)
+  tbl_papers    Paper[]
+  class_subjects ClassSubject[]
+
+  @@map("tbl_subjects")
+}
+
+model Class {
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  code           String?        @unique
+  description    String?
+  teacher_id     String?        @db.Uuid
+  created_at     DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime       @default(now()) @db.Timestamptz(6)
+  teacher        User?          @relation(fields: [teacher_id], references: [id], onUpdate: NoAction)
+  class_subjects ClassSubject[]
+
+  @@map("tbl_classes")
+}
+
+model ClassSubject {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  class_id   String   @db.Uuid
+  subject_id String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  class      Class    @relation(fields: [class_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  subject    Subject  @relation(fields: [subject_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([class_id, subject_id])
+  @@map("tbl_class_subjects")
+}
+
+model Grade {
+  id              String     @id(map: "grades_pkey") @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  submission_id   String     @db.Uuid
+  paper_id        String     @unique(map: "grades_paper_id_key") @db.Uuid
+  student_name    String
+  criteria_scores Json
+  total_score     Decimal    @db.Decimal(6, 2)
+  comments        String?
+  created_at      DateTime   @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime   @default(now()) @db.Timestamptz(6)
+  tbl_papers      Paper      @relation(fields: [paper_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "grades_paper_id_fkey")
+  tbl_submissions Submission @relation(fields: [submission_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "grades_submission_id_fkey")
+
+  @@index([submission_id], map: "idx_tbl_grades_submission")
+  @@map("tbl_grades")
+}
+
+enum submission_status {
+  PENDING
+  GRADING
+  COMPLETED
+  FAILED
+}

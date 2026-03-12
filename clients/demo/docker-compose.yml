@@ -1,0 +1,110 @@
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    container_name: demo-rubricheck-postgres
+    restart: always
+    env_file: [.env]
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_HOST_PORT}:5432"
+    networks: [rubricheck-network]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER} -d ${DB_NAME} -h localhost -p 5432",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: backend/Dockerfile
+    container_name: demo-rubricheck-backend
+    restart: always
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?schema=public
+    ports:
+      - "${BACKEND_HOST_PORT}:${BACKEND_CONTAINER_PORT}"
+    networks:
+      - rubricheck-network
+      - dokploy-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      - "dokploy.expose=true"
+      - "dokploy.domain=${DOKPLOY_DOMAIN}"
+      - "dokploy.path=/api"
+      - "dokploy.port=${BACKEND_CONTAINER_PORT}"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "curl",
+          "-f",
+          "http://localhost:${BACKEND_CONTAINER_PORT}/api/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_MOODLE_WEB_SERVICE_URL: ${VITE_MOODLE_WEB_SERVICE_URL}
+        VITE_WSTOKEN: ${VITE_WSTOKEN}
+    container_name: demo-rubricheck-frontend
+    restart: always
+    env_file: [.env]
+    ports:
+      - "${FRONTEND_HOST_PORT}:${FRONTEND_CONTAINER_PORT}"
+    networks:
+      - rubricheck-network
+      - dokploy-network
+    depends_on:
+      backend:
+        condition: service_healthy
+    labels:
+      - "dokploy.expose=true"
+      - "dokploy.domain=${DOKPLOY_DOMAIN}"
+      - "dokploy.path=/"
+      - "dokploy.port=${FRONTEND_CONTAINER_PORT}"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--no-verbose",
+          "--tries=1",
+          "--spider",
+          "http://localhost:${FRONTEND_CONTAINER_PORT}/",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  postgres_data:
+
+networks:
+  rubricheck-network:
+    driver: bridge
+  dokploy-network:
+    external: true
