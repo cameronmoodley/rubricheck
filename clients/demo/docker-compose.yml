@@ -34,7 +34,7 @@ services:
     restart: always
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?schema=public
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME}?schema=public
     ports:
       - "${BACKEND_HOST_PORT}:${BACKEND_CONTAINER_PORT}"
     networks:
@@ -67,6 +67,7 @@ services:
       dockerfile: frontend/Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL}
+        VITE_COMPANY_NAME: ${VITE_COMPANY_NAME}
         VITE_MOODLE_WEB_SERVICE_URL: ${VITE_MOODLE_WEB_SERVICE_URL}
         VITE_WSTOKEN: ${VITE_WSTOKEN}
     container_name: demo-rubricheck-frontend

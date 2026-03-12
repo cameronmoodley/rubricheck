@@ -11,8 +11,8 @@ cp .env.example .env
 docker compose up -d
 ```
 
-- Frontend: http://localhost:3001
-- Backend: http://localhost:8001
+- Frontend: http://localhost:3005
+- Backend: http://localhost:8004
 
 ## Seed Data
 
