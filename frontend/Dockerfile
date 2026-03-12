@@ -22,8 +22,8 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 # Copy all source first (node_modules excluded via .dockerignore)
 COPY frontend/ .
 
-# Install dependencies and build
-RUN npm ci --no-audit --no-fund --prefer-offline --silent && npm run build
+# Install all deps including devDependencies (Vite, TypeScript) for build
+RUN npm ci --include=dev --no-audit --no-fund --prefer-offline --silent && npm run build
 
 # Production stage
 FROM node:22-alpine
