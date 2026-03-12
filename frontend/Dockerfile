@@ -19,17 +19,11 @@ ENV CI=true
 ENV GENERATE_SOURCEMAP=false
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
-# Copy package files
-COPY frontend/package*.json ./
-
-# Install dependencies
-RUN npm ci --no-audit --no-fund --prefer-offline --silent
-
-# Copy source
+# Copy all source first (node_modules excluded via .dockerignore)
 COPY frontend/ .
 
-# Build with Vite
-RUN npm run build
+# Install dependencies and build
+RUN npm ci --no-audit --no-fund --prefer-offline --silent && npm run build
 
 # Production stage
 FROM node:22-alpine
