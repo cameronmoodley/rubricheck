@@ -42,5 +42,5 @@ USER nodejs
 
 EXPOSE 8001
 
-# Run Prisma schema sync, seed, then start (postgres ready via depends_on)
-CMD ["sh", "-c", "npx prisma db push --skip-generate && npx prisma db seed && node dist/index.js"]
+# Run Prisma generate (client needed for seed & app), schema sync, seed, then start
+CMD ["sh", "-c", "npx prisma generate && npx prisma db push --skip-generate && npx prisma db seed && node dist/index.js"]
