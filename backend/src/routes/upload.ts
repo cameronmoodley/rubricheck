@@ -8,6 +8,7 @@ import { authenticateToken, checkRole, authenticateWebhook } from "../auth/auth"
 import { uploadRateLimiter } from "../lib/rate-limit";
 import { logger } from "../lib/logger";
 import { logAudit, getClientIp } from "../lib/audit";
+import { sanitizeErrorMessage } from "../lib/sanitize-error";
 import { sendGradingCompleteEmail } from "../lib/email";
 import { getTemplatePdfBase64 } from "../data/rubric-templates";
 import { textToPdfBuffer } from "../lib/text-to-pdf";
@@ -424,7 +425,9 @@ router.post(
       });
     } catch (error: any) {
       logger.error({ err: error }, "Upload error");
-      res.status(500).json({ error: error.message || "Upload failed" });
+      res.status(500).json({
+        error: sanitizeErrorMessage(error.message, "Upload failed"),
+      });
     }
   }
 );
@@ -685,9 +688,9 @@ router.post("/n8n/grades", authenticateWebhook, async (req: Request, res: Respon
     res.json({ success: true, message: `Processed ${grades.length} grade(s)` });
   } catch (error: any) {
     logger.error({ err: error }, "n8n-grades error");
-    res
-      .status(500)
-      .json({ error: error.message || "Failed to process grades" });
+    res.status(500).json({
+      error: sanitizeErrorMessage(error.message, "Failed to process grades"),
+    });
   }
 });
 
@@ -745,7 +748,9 @@ router.post(
       return res.status(500).json({ error: "Failed to trigger retry" });
     } catch (error: any) {
       logger.error({ err: error }, "Retry error");
-      res.status(500).json({ error: error.message || "Retry failed" });
+      res.status(500).json({
+        error: sanitizeErrorMessage(error.message, "Retry failed"),
+      });
     }
   }
 );
@@ -1486,9 +1491,12 @@ router.post(
       });
     } catch (error: any) {
       logger.error({ err: error }, "Exam projects error");
-      res
-        .status(500)
-        .json({ error: error.message || "Failed to process exam projects" });
+      res.status(500).json({
+        error: sanitizeErrorMessage(
+          error.message,
+          "Failed to process exam projects"
+        ),
+      });
     }
   }
 );

@@ -3,6 +3,7 @@ import fetch from "node-fetch";
 import { PrismaClient } from "@prisma/client";
 import * as cheerio from "cheerio";
 import { authenticateToken, checkRole, authenticateWebhook } from "../auth/auth";
+import { sanitizeErrorMessage } from "../lib/sanitize-error";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -807,13 +808,18 @@ router.post(
           jobId,
           `n8n error: ${n8nError.message}`
         );
-        res.status(500).json({ error: `n8n error: ${n8nError.message}` });
+        res.status(500).json({
+          error: sanitizeErrorMessage(
+            n8nError.message,
+            "Failed to start grading"
+          ),
+        });
       }
     } catch (error: any) {
       console.error("[quiz-grade] Error:", error);
-      res
-        .status(500)
-        .json({ error: error.message || "Failed to start grading" });
+      res.status(500).json({
+        error: sanitizeErrorMessage(error.message, "Failed to start grading"),
+      });
     }
   }
 );
@@ -882,9 +888,12 @@ router.post("/n8n/quiz-grades", authenticateWebhook, async (req: Request, res: R
     });
   } catch (error: any) {
     console.error("[n8n-quiz-grades] Error:", error);
-    res
-      .status(500)
-      .json({ error: error.message || "Failed to process quiz grades" });
+    res.status(500).json({
+      error: sanitizeErrorMessage(
+        error.message,
+        "Failed to process quiz grades"
+      ),
+    });
   }
 });
 

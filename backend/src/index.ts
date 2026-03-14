@@ -31,6 +31,9 @@ validateEnv();
 const app = express();
 const PORT = 8001;
 
+// Trust proxy (required when behind Traefik/Nginx/Dokploy - fixes rate limiter X-Forwarded-For validation)
+app.set("trust proxy", 1);
+
 // Enable CORS for all routes
 const corsOrigins: string[] = ["http://localhost:5173", "http://localhost:3000"];
 const corsEnv = process.env.CORS_ORIGIN || process.env.APP_URL;
