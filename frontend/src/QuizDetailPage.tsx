@@ -61,6 +61,7 @@ export default function QuizDetailPage() {
   const [loadingAction, setLoadingAction] = useState(false);
 
   const makeMoodleRequest = async (wsfunction: string, params: Record<string, string> = {}) => {
+    if (HIDE_MOODLE) throw new Error("Moodle disabled");
     const moodleUrl = import.meta.env.VITE_MOODLE_WEB_SERVICE_URL;
     const token = import.meta.env.VITE_WSTOKEN;
     if (!moodleUrl || !token) throw new Error("Missing Moodle URL or token");

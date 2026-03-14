@@ -141,6 +141,7 @@ export default function DashboardPage() {
     wsfunction: string,
     additionalParams: Record<string, string> = {}
   ) => {
+    if (HIDE_MOODLE) throw new Error("Moodle disabled");
     const moodleUrl = import.meta.env.VITE_MOODLE_WEB_SERVICE_URL;
     const token = import.meta.env.VITE_WSTOKEN;
     if (!moodleUrl || !token) throw new Error("Missing Moodle URL or token");
@@ -201,6 +202,7 @@ export default function DashboardPage() {
   }, [selectedClassId, token]);
 
   useEffect(() => {
+    if (HIDE_MOODLE) return;
     let mounted = true;
     const fetchCoursesAndStatus = async () => {
       try {
@@ -226,8 +228,8 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (courses.length === 0) {
-      setQuizzes([]);
+    if (HIDE_MOODLE || courses.length === 0) {
+      if (courses.length === 0) setQuizzes([]);
       return;
     }
     const formData = new FormData();

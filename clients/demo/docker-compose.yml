@@ -90,8 +90,9 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL}
         VITE_COMPANY_NAME: ${VITE_COMPANY_NAME}
-        VITE_MOODLE_WEB_SERVICE_URL: ${VITE_MOODLE_WEB_SERVICE_URL}
-        VITE_WSTOKEN: ${VITE_WSTOKEN}
+        # Moodle disabled by default - set in .env to enable
+        VITE_MOODLE_WEB_SERVICE_URL: ${VITE_MOODLE_WEB_SERVICE_URL:-}
+        VITE_WSTOKEN: ${VITE_WSTOKEN:-}
     container_name: demo-rubricheck-frontend
     restart: always
     env_file: [.env]

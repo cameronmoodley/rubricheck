@@ -56,18 +56,18 @@ export default function QuizPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  useEffect(() => {
-    if (HIDE_MOODLE) navigate("/", { replace: true });
-  }, [navigate]);
-
-  if (HIDE_MOODLE) return null;
   const [courses, setCourses] = useState<MoodleCourse[]>([]);
   const [quizzes, setQuizzes] = useState<MoodleQuiz[]>([]);
   const [, setLoadingCourses] = useState(false);
   const [loadingQuizzes, setLoadingQuizzes] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
+  useEffect(() => {
+    if (HIDE_MOODLE) navigate("/", { replace: true });
+  }, [navigate]);
+
   const makeMoodleRequest = async (wsfunction: string, additionalParams: Record<string, string> = {}) => {
+    if (HIDE_MOODLE) throw new Error("Moodle disabled");
     const moodleUrl = import.meta.env.VITE_MOODLE_WEB_SERVICE_URL;
     const token = import.meta.env.VITE_WSTOKEN;
     if (!moodleUrl || !token) throw new Error("Missing Moodle URL or token");
@@ -84,6 +84,7 @@ export default function QuizPage() {
   };
 
   useEffect(() => {
+    if (HIDE_MOODLE) return;
     const courseParam = searchParams.get("course");
     if (courseParam) {
       setLoadingCourses(true);
@@ -99,8 +100,8 @@ export default function QuizPage() {
   }, [searchParams]);
 
   useEffect(() => {
-    if (courses.length === 0) {
-      setQuizzes([]);
+    if (HIDE_MOODLE || courses.length === 0) {
+      if (courses.length === 0) setQuizzes([]);
       return;
     }
     setLoadingQuizzes(true);
@@ -115,6 +116,8 @@ export default function QuizPage() {
       .catch(() => setQuizzes([]))
       .finally(() => setLoadingQuizzes(false));
   }, [courses]);
+
+  if (HIDE_MOODLE) return null;
 
   const filteredQuizzes = quizzes.filter((quiz) => {
     const course = courses.find((c) => c.id === quiz.course);
