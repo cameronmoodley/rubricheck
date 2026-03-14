@@ -11,6 +11,7 @@ import { PrismaClient } from "@prisma/client";
 import { authenticateToken, checkRole } from "./auth/auth";
 import bcrypt from "bcryptjs";
 import { validateEnv } from "./lib/validate-env";
+import { ensureDatabaseUrl } from "./lib/database-url";
 import { logger } from "./lib/logger";
 import { apiRateLimiter } from "./lib/rate-limit";
 import { logAudit, getClientIp } from "./lib/audit";
@@ -19,8 +20,7 @@ const prisma = new PrismaClient();
 
 // Load environment variables
 dotenv.config();
-
-// Ensure DATABASE_URL exists for Prisma (local dev fallback)
+ensureDatabaseUrl();
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL =
     "postgresql://postgres:postgres@localhost:5433/rubricheck?schema=public";

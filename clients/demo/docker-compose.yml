@@ -34,7 +34,11 @@ services:
     restart: always
     env_file: [.env]
     environment:
-      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD_URL_ENCODED:-${DB_PASSWORD}}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME}?schema=public
+      DB_HOST: ${DB_HOST:-postgres}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       CORS_ORIGIN: ${CORS_ORIGIN:-}
       APP_URL: ${APP_URL:-}
     ports:
