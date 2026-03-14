@@ -265,3 +265,22 @@ export const resetPassword = async (req: Request, res: Response) => {
     res.status(500).json({ message: "Something went wrong. Please try again." });
   }
 };
+
+/**
+ * Middleware to authenticate n8n webhook callbacks via shared secret in header.
+ * Requires N8N_WEBHOOK_SECRET in env. n8n must send it in the header (default: X-Webhook-Secret).
+ */
+export const authenticateWebhook = (req: Request, res: Response, next: NextFunction) => {
+  const secret = process.env.N8N_WEBHOOK_SECRET;
+  const headerName = process.env.N8N_WEBHOOK_HEADER || "X-Webhook-Secret";
+
+  if (!secret || secret.trim() === "") {
+    return res.status(500).json({ error: "Webhook authentication not configured (N8N_WEBHOOK_SECRET required)" });
+  }
+
+  const received = req.get(headerName);
+  if (!received || received !== secret) {
+    return res.status(401).json({ error: "Invalid or missing webhook secret" });
+  }
+  next();
+};

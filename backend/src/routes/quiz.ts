@@ -2,7 +2,7 @@ import express, { Request, Response } from "express";
 import fetch from "node-fetch";
 import { PrismaClient } from "@prisma/client";
 import * as cheerio from "cheerio";
-import { authenticateToken, checkRole } from "../auth/auth";
+import { authenticateToken, checkRole, authenticateWebhook } from "../auth/auth";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -819,7 +819,7 @@ router.post(
 );
 
 // POST /api/n8n/quiz-grades - Callback from n8n for quiz grading results
-router.post("/n8n/quiz-grades", async (req: Request, res: Response) => {
+router.post("/n8n/quiz-grades", authenticateWebhook, async (req: Request, res: Response) => {
   try {
     console.log("[n8n-quiz-grades] Received grading results from n8n");
     console.log(
@@ -847,10 +847,10 @@ router.post("/n8n/quiz-grades", async (req: Request, res: Response) => {
         SET 
           grading_status = 'graded',
           score = $2,
-          good_comments = $4,
-          bad_comments = $5,
+          good_comments = $3,
+          bad_comments = $4,
           graded_at = NOW()
-        WHERE job_id = $1::uuid AND attempt_id = $6
+        WHERE job_id = $1::uuid AND attempt_id = $5
       `,
         jobId,
         score,

@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 import FormData from "form-data";
 import fetch from "node-fetch";
 import { PrismaClient } from "@prisma/client";
-import { authenticateToken, checkRole } from "../auth/auth";
+import { authenticateToken, checkRole, authenticateWebhook } from "../auth/auth";
 import { uploadRateLimiter } from "../lib/rate-limit";
 import { logger } from "../lib/logger";
 import { logAudit, getClientIp } from "../lib/audit";
@@ -429,7 +429,7 @@ router.post(
 );
 
 // POST /api/n8n/grades - Callback from n8n for paper grading results
-router.post("/n8n/grades", async (req: Request, res: Response) => {
+router.post("/n8n/grades", authenticateWebhook, async (req: Request, res: Response) => {
   try {
     logger.info("Received grading results from n8n");
     logger.debug({ body: req.body }, "n8n-grades request body");
@@ -1476,6 +1476,7 @@ router.post(
 // POST /api/exam-projects/n8n/grades - Callback from n8n for exam project grades
 router.post(
   "/exam-projects/n8n/grades",
+  authenticateWebhook,
   async (req: Request, res: Response) => {
     try {
       // Handle both formats: direct object {grades: [...]} or array [{grades: [...]}]
