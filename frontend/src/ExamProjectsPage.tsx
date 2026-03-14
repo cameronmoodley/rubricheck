@@ -78,24 +78,26 @@ export default function ExamProjectsPage() {
   }, [selectedClassId, token]);
 
   const canSubmit = useMemo(() => {
-    return !!selectedClassId && !!selectedSubjectId && (!!rubricFile || !!selectedTemplateId) && !!questionFile && paperFiles.length > 0;
-  }, [selectedClassId, selectedSubjectId, rubricFile, selectedTemplateId, questionFile, paperFiles]);
+    return !!selectedClassId && !!selectedSubjectId && !!rubricFile && (!!questionFile || !!selectedTemplateId) && paperFiles.length > 0;
+  }, [selectedClassId, selectedSubjectId, rubricFile, questionFile, selectedTemplateId, paperFiles]);
 
   const missingFields = useMemo(() => {
     const m: string[] = [];
     if (!selectedClassId) m.push("class");
     if (!selectedSubjectId) m.push("subject");
-    if (!rubricFile && !selectedTemplateId) m.push("rubric or template");
-    if (!questionFile) m.push("question file (PDF)");
+    if (!rubricFile) m.push("rubric file (PDF)");
+    if (!questionFile && !selectedTemplateId) m.push("question file (PDF) or question paper template");
     if (paperFiles.length === 0) m.push("student project(s)");
     return m;
-  }, [selectedClassId, selectedSubjectId, rubricFile, selectedTemplateId, questionFile, paperFiles]);
+  }, [selectedClassId, selectedSubjectId, rubricFile, questionFile, selectedTemplateId, paperFiles]);
 
   const handleRubricChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setRubricFile(e.target.files?.[0] || null);
+  };
+  const handleQuestionChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setQuestionFile(e.target.files?.[0] || null);
     if (e.target.files?.[0]) setSelectedTemplateId("");
   };
-  const handleQuestionChange = (e: React.ChangeEvent<HTMLInputElement>) => setQuestionFile(e.target.files?.[0] || null);
   const handlePapersChange = (e: React.ChangeEvent<HTMLInputElement>) => setPaperFiles(e.target.files ? Array.from(e.target.files) : []);
 
   async function onSubmit(e: React.FormEvent) {
@@ -106,9 +108,9 @@ export default function ExamProjectsPage() {
     setResult(null);
     try {
       const form = new FormData();
-      if (rubricFile) form.append("rubricFile", rubricFile);
-      if (selectedTemplateId && !rubricFile) form.append("templateId", selectedTemplateId);
+      form.append("rubricFile", rubricFile);
       if (questionFile) form.append("questionFile", questionFile);
+      if (selectedTemplateId && !questionFile) form.append("questionTemplateId", selectedTemplateId);
       paperFiles.forEach((f) => form.append("paperFiles", f));
       form.append("classId", selectedClassId);
       form.append("subjectId", selectedSubjectId);
@@ -139,8 +141,8 @@ export default function ExamProjectsPage() {
       setResult(`Success! ${count} exam project(s) submitted. Submission ID: ${data.submissionId}`);
       setUploadProgress(100);
       setRubricFile(null);
-      setSelectedTemplateId("");
       setQuestionFile(null);
+      setSelectedTemplateId("");
       setPaperFiles([]);
       setSelectedSubjectId("");
       (document.getElementById("rubric-upload") as HTMLInputElement)?.form?.reset();
@@ -157,7 +159,7 @@ export default function ExamProjectsPage() {
   const steps = [
     { num: 1, title: "Select Class & Subject", desc: "Choose the class and subject you're grading for" },
     { num: 2, title: "Upload Rubric", desc: "Upload your grading rubric as a PDF" },
-    { num: 3, title: "Upload Question & Projects", desc: "Upload question paper and exam projects (PDFs)" },
+    { num: 3, title: "Question Paper & Projects", desc: "Upload question paper (or use a template) and exam projects (PDFs)" },
     { num: 4, title: "AI Grading", desc: "Projects are graded sequentially by AI" },
   ];
 
@@ -223,50 +225,53 @@ export default function ExamProjectsPage() {
                 <>
                   <Box>
                     <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
-                      <Description fontSize="small" /> 2. Rubric or Template
+                      <Description fontSize="small" /> 2. Rubric
                     </Typography>
                     <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}>
                       <Stack spacing={2}>
-                        <FormControl fullWidth>
+                        <FormControl fullWidth required>
                           <InputLabel shrink>Rubric File (PDF)</InputLabel>
                           <Input id="rubric-upload" type="file" inputProps={{ accept: "application/pdf" }} onChange={handleRubricChange} sx={{ mt: 1 }} />
+                          {rubricFile && <FormHelperText sx={{ color: "success.main" }}>✓ {rubricFile.name}</FormHelperText>}
+                          {!rubricFile && selectedSubjectId && (
+                            <FormHelperText color="error">Required: upload your grading rubric as PDF</FormHelperText>
+                          )}
                         </FormControl>
-                        <Typography variant="body2" color="text.secondary">— or —</Typography>
-                        <SearchableSelect
-                          label="Use a template"
-                          value={selectedTemplateId}
-                          onChange={(v) => {
-                            setSelectedTemplateId(v);
-                            if (v) setRubricFile(null);
-                          }}
-                          options={templates.map((t) => ({ id: t.id, label: t.name }))}
-                          emptyLabel="No template"
-                          width="100%"
-                        />
-                        {rubricFile && <FormHelperText sx={{ color: "success.main" }}>✓ {rubricFile.name}</FormHelperText>}
-                        {selectedTemplateId && !rubricFile && (
-                          <FormHelperText sx={{ color: "success.main" }}>
-                            ✓ Using template: {templates.find((t) => t.id === selectedTemplateId)?.name}
-                          </FormHelperText>
-                        )}
                       </Stack>
                     </Paper>
                   </Box>
 
                   <Box>
                     <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
-                      <Quiz fontSize="small" /> 3. Question File & Student Projects
+                      <Quiz fontSize="small" /> 3. Question Paper & Student Projects
                     </Typography>
                     <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}>
                       <Stack spacing={2}>
-                        <FormControl fullWidth required>
+                        <FormControl fullWidth>
                           <InputLabel shrink>Question Paper (PDF)</InputLabel>
                           <Input id="question-upload" type="file" inputProps={{ accept: "application/pdf" }} onChange={handleQuestionChange} sx={{ mt: 1 }} />
-                          {questionFile && <FormHelperText sx={{ color: "success.main" }}>✓ {questionFile.name}</FormHelperText>}
-                          {!questionFile && selectedSubjectId && (
-                            <FormHelperText color="error">Required: upload the exam question paper</FormHelperText>
-                          )}
                         </FormControl>
+                        <Typography variant="body2" color="text.secondary">— or —</Typography>
+                        <SearchableSelect
+                          label="Use a question paper template"
+                          value={selectedTemplateId}
+                          onChange={(v) => {
+                            setSelectedTemplateId(v);
+                            if (v) setQuestionFile(null);
+                          }}
+                          options={templates.map((t) => ({ id: t.id, label: t.name }))}
+                          emptyLabel="No template"
+                          width="100%"
+                        />
+                        {questionFile && <FormHelperText sx={{ color: "success.main" }}>✓ {questionFile.name}</FormHelperText>}
+                        {selectedTemplateId && !questionFile && (
+                          <FormHelperText sx={{ color: "success.main" }}>
+                            ✓ Using template: {templates.find((t) => t.id === selectedTemplateId)?.name}
+                          </FormHelperText>
+                        )}
+                        {!questionFile && !selectedTemplateId && selectedSubjectId && (
+                          <FormHelperText color="error">Required: upload question paper or select a template</FormHelperText>
+                        )}
                         <FormControl fullWidth required>
                           <InputLabel shrink>Student Exam Projects (PDF, up to 25)</InputLabel>
                           <Input id="papers-upload" type="file" inputProps={{ accept: "application/pdf", multiple: true }} onChange={handlePapersChange} sx={{ mt: 1 }} />

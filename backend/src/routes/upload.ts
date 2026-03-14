@@ -10,6 +10,7 @@ import { logger } from "../lib/logger";
 import { logAudit, getClientIp } from "../lib/audit";
 import { sendGradingCompleteEmail } from "../lib/email";
 import { getTemplatePdfBase64 } from "../data/rubric-templates";
+import { textToPdfBuffer } from "../lib/text-to-pdf";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -1217,19 +1218,24 @@ router.post(
       let rubricFile = files.rubricFile?.[0];
       const questionFile = files.questionFile?.[0];
       const paperFiles = files.paperFiles || [];
-      const { subjectName, subjectCode, classId, subjectId: bodySubjectId, templateId } = req.body;
+      const { subjectName, subjectCode, classId, subjectId: bodySubjectId, questionTemplateId } = req.body;
 
-      if (!rubricFile && templateId) {
+      if (!rubricFile) {
+        return res.status(400).json({ error: "Rubric file (PDF) is required" });
+      }
+
+      let questionFileResolved = questionFile;
+      if (!questionFileResolved && questionTemplateId) {
         const template = await prisma.rubricTemplate.findUnique({
-          where: { id: templateId },
+          where: { id: questionTemplateId },
         });
         if (!template) {
-          return res.status(400).json({ error: "Invalid rubric template" });
+          return res.status(400).json({ error: "Invalid question paper template" });
         }
-        const pdfBuffer = Buffer.from(getTemplatePdfBase64(), "base64");
-        rubricFile = {
-          fieldname: "rubricFile",
-          originalname: `rubric-${template.name}.pdf`,
+        const pdfBuffer = await textToPdfBuffer(template.description, template.name);
+        questionFileResolved = {
+          fieldname: "questionFile",
+          originalname: `question-${template.name}.pdf`,
           encoding: "7bit",
           mimetype: "application/pdf",
           buffer: pdfBuffer,
@@ -1237,12 +1243,8 @@ router.post(
         } as Express.Multer.File;
       }
 
-      if (!rubricFile) {
-        return res.status(400).json({ error: "Rubric file or template is required" });
-      }
-
-      if (!questionFile) {
-        return res.status(400).json({ error: "Question file is required" });
+      if (!questionFileResolved) {
+        return res.status(400).json({ error: "Question file (PDF) or question paper template is required" });
       }
 
       if (!paperFiles || paperFiles.length === 0) {
@@ -1255,7 +1257,7 @@ router.post(
         {
           paperCount: paperFiles.length,
           rubricName: rubricFile.originalname,
-          questionName: questionFile.originalname,
+          questionName: questionFileResolved.originalname,
         },
         "Processing exam projects"
       );
@@ -1360,7 +1362,7 @@ router.post(
       if (!rubricFile.buffer) {
         throw new Error("Rubric file buffer is missing");
       }
-      if (!questionFile.buffer) {
+      if (!questionFileResolved.buffer) {
         throw new Error("Question file buffer is missing");
       }
 
@@ -1394,7 +1396,7 @@ router.post(
       // Cache buffers for sequential processing
       fileBufferCache.set(submission.id, {
         rubricBuffer: rubricFile.buffer,
-        questionBuffer: questionFile.buffer,
+        questionBuffer: questionFileResolved.buffer,
         paperBuffers: paperBuffers,
       });
 
@@ -1436,9 +1438,9 @@ router.post(
       appendBufferToFormData(
         formData,
         "questionFile",
-        questionFile.buffer,
-        questionFile.originalname,
-        questionFile.mimetype
+        questionFileResolved.buffer,
+        questionFileResolved.originalname,
+        questionFileResolved.mimetype
       );
       appendBufferToFormData(
         formData,

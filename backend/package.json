@@ -30,10 +30,10 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.0",
     "node-fetch": "^3.3.2",
+    "pdf-lib": "^1.17.1",
     "pino": "^9.5.0",
     "prisma": "^6.16.2",
     "resend": "^4.0.0",
-    "xlsx": "^0.18.5",
     "victory-area": "^37.3.6",
     "victory-axis": "^37.3.6",
     "victory-bar": "^37.3.6",
@@ -48,10 +48,10 @@
     "victory-scatter": "^37.3.6",
     "victory-stack": "^37.3.6",
     "victory-tooltip": "^37.3.6",
-    "victory-voronoi-container": "^37.3.6"
+    "victory-voronoi-container": "^37.3.6",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "pino-pretty": "^13.0.0",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
@@ -60,6 +60,7 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^24.5.2",
     "nodemon": "^3.1.10",
+    "pino-pretty": "^13.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2"
   }
