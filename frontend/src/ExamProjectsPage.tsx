@@ -11,6 +11,7 @@ import {
   Grid,
   Input,
   FormHelperText,
+  LinearProgress,
 } from "@mui/material";
 import { SearchableSelect } from "./components/SearchableSelect";
 import { CloudUpload } from "@mui/icons-material";
@@ -31,6 +32,7 @@ export default function ExamProjectsPage() {
   const [questionFile, setQuestionFile] = useState<File | null>(null);
   const [paperFiles, setPaperFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,6 +70,7 @@ export default function ExamProjectsPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
+    setUploadProgress(0);
     setError(null);
     setResult(null);
     try {
@@ -78,19 +81,31 @@ export default function ExamProjectsPage() {
       form.append("classId", selectedClassId);
       form.append("subjectId", selectedSubjectId);
 
-      const res = await fetch("/api/exam-projects", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: form,
+      const res = await new Promise<Response>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/exam-projects");
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        xhr.upload.addEventListener("progress", (ev) => {
+          if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
+        });
+        xhr.onload = () =>
+          resolve(
+            new Response(xhr.responseText, {
+              status: xhr.status,
+              headers: new Headers({ "Content-Type": xhr.getResponseHeader("Content-Type") || "application/json" }),
+            })
+          );
+        xhr.onerror = () => reject(new Error("Upload failed"));
+        xhr.send(form);
       });
 
+      const data = (await res.json().catch(() => ({}))) as { submissionId?: string; totalPapers?: number; error?: string };
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || `Upload failed (${res.status})`);
+        throw new Error(data.error || `Upload failed (${res.status})`);
       }
-      const data = await res.json();
       const count = data.totalPapers ?? paperFiles.length;
       setResult(`Success! ${count} exam project(s) submitted. Submission ID: ${data.submissionId}`);
+      setUploadProgress(100);
       setRubricFile(null);
       setQuestionFile(null);
       setPaperFiles([]);
@@ -102,6 +117,7 @@ export default function ExamProjectsPage() {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setSubmitting(false);
+      setUploadProgress(0);
     }
   }
 
@@ -180,7 +196,7 @@ export default function ExamProjectsPage() {
                   </Grid>
                   <Grid size={{ xs: 12 }}>
                     <FormControl fullWidth required>
-                      <InputLabel shrink>Student Exam Projects (PDF, up to 5)</InputLabel>
+                      <InputLabel shrink>Student Exam Projects (PDF, up to 25)</InputLabel>
                       <Input id="papers-upload" type="file" inputProps={{ accept: "application/pdf", multiple: true }} onChange={handlePapersChange} />
                       {paperFiles.length > 0 && <FormHelperText sx={{ color: "success.main" }}>✓ {paperFiles.length} file(s) selected</FormHelperText>}
                     </FormControl>
@@ -188,8 +204,16 @@ export default function ExamProjectsPage() {
                 </>
               )}
               <Grid size={{ xs: 12 }}>
+                {submitting && uploadProgress > 0 && uploadProgress < 100 && (
+                  <Box sx={{ width: "100%", mb: 2 }}>
+                    <LinearProgress variant="determinate" value={uploadProgress} sx={{ height: 8, borderRadius: 1 }} />
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                      Uploading... {uploadProgress}%
+                    </Typography>
+                  </Box>
+                )}
                 <Button type="submit" variant="contained" size="large" disabled={!canSubmit || submitting} startIcon={<CloudUpload />} fullWidth>
-                  {submitting ? "Processing..." : "Submit for Grading"}
+                  {submitting ? (uploadProgress > 0 ? "Uploading..." : "Processing...") : "Submit for Grading"}
                 </Button>
               </Grid>
             </Grid>

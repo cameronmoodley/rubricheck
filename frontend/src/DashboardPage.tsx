@@ -60,7 +60,7 @@ type PerformanceData = {
 };
 
 const GRADE_COLORS: Record<string, string> = {
-  A: "#10B981", B: "#3B82F6", C: "#F59E0B", D: "#0EA5E9", F: "#EF4444",
+  A: "#00D084", B: "#0066CC", C: "#FF9500", D: "#00B4D8", F: "#FF4444",
 };
 
 type MoodleCourse = {
@@ -368,7 +368,7 @@ export default function DashboardPage() {
                               <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
                               <YAxis domain={[0, 100]} />
                               <Tooltip />
-                              <Bar dataKey="average" fill="#6366F1" radius={[4, 4, 0, 0]} />
+                              <Bar dataKey="average" fill="#0066CC" radius={[4, 4, 0, 0]} />
                             </BarChart>
                           </ResponsiveContainer>
                         </Box>
@@ -391,7 +391,7 @@ export default function DashboardPage() {
                               <YAxis />
                               <Tooltip />
                               <Legend />
-                              <Line type="monotone" dataKey="count" stroke="#6366F1" strokeWidth={2} dot={{ r: 4 }} name="Papers Graded" />
+                              <Line type="monotone" dataKey="count" stroke="#0066CC" strokeWidth={2} dot={{ r: 4 }} name="Papers Graded" />
                             </LineChart>
                           </ResponsiveContainer>
                         </Box>

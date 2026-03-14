@@ -22,7 +22,7 @@ import {
   Chip,
 } from "@mui/material";
 import { SearchableSelect } from "./components/SearchableSelect";
-import { Search } from "@mui/icons-material";
+import { Search, Download } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
 
 type Grade = {
@@ -84,13 +84,16 @@ export default function ResultsPage() {
     if (!token) return;
     setLoading(true);
     setError(null);
-    const url = selectedSubjectId ? `/api/grades?subjectId=${selectedSubjectId}` : "/api/grades";
+    const params = new URLSearchParams();
+    if (selectedClassId) params.set("classId", selectedClassId);
+    if (selectedSubjectId) params.set("subjectId", selectedSubjectId);
+    const url = params.toString() ? `/api/grades?${params.toString()}` : "/api/grades";
     fetch(url, { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => setGrades(d.grades || []))
       .catch(() => setError("Failed to fetch grades"))
       .finally(() => setLoading(false));
-  }, [token, selectedSubjectId]);
+  }, [token, selectedClassId, selectedSubjectId]);
 
   const filtered = grades.filter(
     (g) =>
@@ -157,6 +160,29 @@ export default function ResultsPage() {
     }
   };
 
+  const handleExport = async (format: "csv" | "xlsx") => {
+    if (!token) return;
+    const params = new URLSearchParams();
+    if (selectedClassId) params.set("classId", selectedClassId);
+    if (selectedSubjectId) params.set("subjectId", selectedSubjectId);
+    params.set("format", format);
+    const res = await fetch(`/api/grades/export?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      setError("Export failed");
+      return;
+    }
+    const blob = await res.blob();
+    const ext = format === "xlsx" ? "xlsx" : "csv";
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `grades-${new Date().toISOString().slice(0, 10)}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <Box>
       <Typography variant="h4" fontWeight={700} gutterBottom>Grading Results</Typography>
@@ -196,7 +222,14 @@ export default function ResultsPage() {
         <CardContent>
           <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 2, mb: 2 }}>
             <Typography variant="h6" fontWeight={600}>Graded Papers ({filtered.length})</Typography>
-            <TextField
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+              <Button size="small" startIcon={<Download />} onClick={() => handleExport("csv")} disabled={loading}>
+                Export CSV
+              </Button>
+              <Button size="small" startIcon={<Download />} onClick={() => handleExport("xlsx")} disabled={loading}>
+                Export Excel
+              </Button>
+              <TextField
               size="small"
               placeholder="Search by student, filename, or subject"
               value={search}
@@ -204,6 +237,7 @@ export default function ResultsPage() {
               InputProps={{ startAdornment: <InputAdornment position="start"><Search /></InputAdornment> }}
               sx={{ maxWidth: 350 }}
             />
+            </Box>
           </Box>
 
           {loading ? (

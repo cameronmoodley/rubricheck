@@ -2,6 +2,8 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { PrivateRoute } from "./components/PrivateRoute";
 import LoginPage from "./LoginPage";
+import ForgotPasswordPage from "./ForgotPasswordPage";
+import ResetPasswordPage from "./ResetPasswordPage";
 import DashboardPage from "./DashboardPage";
 import GradesPage from "./GradesPage";
 import CoursesPage from "./CoursesPage";
@@ -13,6 +15,9 @@ import UploadPage from "./UploadPage";
 import UsersPage from "./UsersPage";
 import ClassesPage from "./ClassesPage";
 import SubjectsPage from "./SubjectsPage";
+import RubricTemplatesPage from "./RubricTemplatesPage";
+import AuditLogPage from "./AuditLogPage";
+import StudentGradesPage from "./StudentGradesPage";
 import ResultsPage from "./ResultsPage";
 import ProfilePage from "./ProfilePage";
 
@@ -22,8 +27,10 @@ const App = () => {
   return (
     <AuthProvider>
       <Routes>
-        {/* Public route */}
+        {/* Public routes */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         {/* Protected routes */}
         <Route
@@ -132,6 +139,36 @@ const App = () => {
             <PrivateRoute>
               <Layout>
                 <SubjectsPage />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/rubric-templates"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <RubricTemplatesPage />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/audit"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <AuditLogPage />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/my-grades"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <StudentGradesPage />
               </Layout>
             </PrivateRoute>
           }

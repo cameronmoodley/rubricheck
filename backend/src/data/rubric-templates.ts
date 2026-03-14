@@ -1,10 +1,22 @@
-const { PrismaClient } = require("@prisma/client");
-const bcrypt = require("bcryptjs");
+/**
+ * Pre-built rubric templates for common assignment types.
+ * Each template includes a minimal PDF (base64) for n8n compatibility.
+ */
 
-const prisma = new PrismaClient();
+// Minimal valid PDF (single blank page) - used when no custom rubric is uploaded
+const MINIMAL_PDF_BASE64 =
+  "JVBERi0xLjQKMSAwIG9iago8PAovVHlwZSAvQ2F0YWxvZwovUGFnZXMgMiAwIFIKPj4KZW5kb2JqCjIgMCBvYmoKPDwKL1R5cGUgL1BhZ2VzCi9LaWRzIFszIDAgUl0KL0NvdW50IDEKPj4KZW5kb2JqCjMgMCBvYmoKPDwKL1R5cGUgL1BhZ2UKL1BhcmVudCAyIDAgUgovTWVkaWFCb3ggWzAgMCA2MTIgNzkyXQo+PgplbmRvYmoKdHJhaWxlcgo8PAovU2l6ZSA0Ci9Sb290IDEgMCBSCj4+CnN0YXJ0eHJlZgoxNzQKJSVFT0YK";
 
-const PREDEFINED_RUBRIC_TEMPLATES = [
+export interface RubricTemplate {
+  id: string;
+  name: string;
+  description: string;
+  criteria: Record<string, { maxScore: number; description: string }>;
+}
+
+export const RUBRIC_TEMPLATES: RubricTemplate[] = [
   {
+    id: "essay",
     name: "Essay",
     description: "General essay rubric for argumentative or analytical writing",
     criteria: {
@@ -16,6 +28,7 @@ const PREDEFINED_RUBRIC_TEMPLATES = [
     },
   },
   {
+    id: "lab-report",
     name: "Lab Report",
     description: "Scientific lab report rubric",
     criteria: {
@@ -27,6 +40,7 @@ const PREDEFINED_RUBRIC_TEMPLATES = [
     },
   },
   {
+    id: "math-problem",
     name: "Math Problem",
     description: "Mathematical problem-solving rubric",
     criteria: {
@@ -37,6 +51,7 @@ const PREDEFINED_RUBRIC_TEMPLATES = [
     },
   },
   {
+    id: "presentation",
     name: "Presentation",
     description: "Oral or slide presentation rubric",
     criteria: {
@@ -49,37 +64,6 @@ const PREDEFINED_RUBRIC_TEMPLATES = [
   },
 ];
 
-async function main() {
-  const adminPassword = await bcrypt.hash("admin123", 10);
-
-  await prisma.user.upsert({
-    where: { email: "admin@rubricheck.com" },
-    update: {},
-    create: {
-      email: "admin@rubricheck.com",
-      password: adminPassword,
-      name: "Admin User",
-      role: "ADMIN",
-    },
-  });
-
-  const existing = await prisma.rubricTemplate.findMany({ select: { name: true } });
-  const existingNames = new Set(existing.map((r) => r.name));
-  for (const t of PREDEFINED_RUBRIC_TEMPLATES) {
-    if (!existingNames.has(t.name)) {
-      await prisma.rubricTemplate.create({
-        data: { name: t.name, description: t.description, criteria: t.criteria },
-      });
-      console.log("Created rubric template:", t.name);
-    }
-  }
-
-  console.log("Seed complete: admin@rubricheck.com / admin123");
+export function getTemplatePdfBase64(): string {
+  return MINIMAL_PDF_BASE64;
 }
-
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());

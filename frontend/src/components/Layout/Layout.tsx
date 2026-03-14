@@ -28,6 +28,7 @@ import {
   Logout as LogoutIcon,
   Folder as ExamProjectsIcon,
   Assessment as ExamResultsIcon,
+  History as AuditIcon,
 } from "@mui/icons-material";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
@@ -41,12 +42,15 @@ interface LayoutProps {
 
 const navItems = [
   { path: "/", label: "Dashboard", icon: <DashboardIcon />, roles: ["ADMIN", "TEACHER"] },
+  { path: "/my-grades", label: "My Grades", icon: <ExamResultsIcon />, roles: ["STUDENT"] },
   { path: "/upload", label: "AI Grading", icon: <UploadIcon />, roles: ["ADMIN", "TEACHER"] },
   { path: "/results", label: "Results", icon: <ResultsIcon />, roles: ["ADMIN", "TEACHER"] },
   { path: "/classes", label: "Classes", icon: <ClassIcon />, roles: ["ADMIN"] },
   { path: "/subjects", label: "Subjects", icon: <SubjectIcon />, roles: ["ADMIN"] },
+  { path: "/rubric-templates", label: "Rubric Templates", icon: <ExamResultsIcon />, roles: ["TEACHER", "ADMIN"] },
   ...(!HIDE_MOODLE ? [{ path: "/quiz", label: "Quiz", icon: <QuizIcon />, roles: ["ADMIN"] }] : []),
   { path: "/users", label: "Users", icon: <PeopleIcon />, roles: ["ADMIN"] },
+  { path: "/audit", label: "Audit Log", icon: <AuditIcon />, roles: ["ADMIN"] },
   { path: "/exam-projects", label: "Exam Projects", icon: <ExamProjectsIcon />, roles: ["ADMIN", "TEACHER"] },
   { path: "/exam-project-results", label: "Exam Results", icon: <ExamResultsIcon />, roles: ["ADMIN", "TEACHER"] },
   { path: "/profile", label: "Profile", icon: <PersonIcon />, roles: ["ADMIN", "TEACHER"] },

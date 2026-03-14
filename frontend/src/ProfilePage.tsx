@@ -24,9 +24,9 @@ export default function ProfilePage() {
 
   const getRoleStyle = (role: string) => {
     switch (role) {
-      case "ADMIN": return { bgcolor: "#FEE2E2", color: "#B91C1C" };
-      case "TEACHER": return { bgcolor: "#DBEAFE", color: "#1D4ED8" };
-      default: return { bgcolor: "#F3F4F6", color: "#4B5563" };
+      case "ADMIN": return { bgcolor: "rgba(255, 68, 68, 0.12)", color: "#FF4444" };
+      case "TEACHER": return { bgcolor: "rgba(0, 102, 204, 0.12)", color: "#0066CC" };
+      default: return { bgcolor: "#F0F0F0", color: "#1A1A2E" };
     }
   };
 

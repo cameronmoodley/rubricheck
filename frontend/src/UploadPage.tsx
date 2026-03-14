@@ -11,6 +11,7 @@ import {
   Grid,
   Input,
   FormHelperText,
+  LinearProgress,
 } from "@mui/material";
 import { SearchableSelect } from "./components/SearchableSelect";
 import { CloudUpload } from "@mui/icons-material";
@@ -28,10 +29,28 @@ export default function UploadPage() {
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [loadingSubjects, setLoadingSubjects] = useState(false);
   const [rubricFile, setRubricFile] = useState<File | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templates, setTemplates] = useState<{ id: string; name: string; description: string }[]>([]);
   const [paperFiles, setPaperFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [result, setResult] = useState<string | null>(null);
+  const [lastSubmissionId, setLastSubmissionId] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token || !selectedSubjectId) {
+      setTemplates([]);
+      return;
+    }
+    fetch(`/api/rubric-templates?subjectId=${selectedSubjectId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => setTemplates(d.templates || []))
+      .catch(() => setTemplates([]));
+  }, [token, selectedSubjectId]);
 
   useEffect(() => {
     if (!token) return;
@@ -59,11 +78,12 @@ export default function UploadPage() {
   }, [selectedClassId, token]);
 
   const canSubmit = useMemo(() => {
-    return !!selectedClassId && !!selectedSubjectId && !!rubricFile && paperFiles.length > 0;
-  }, [selectedClassId, selectedSubjectId, rubricFile, paperFiles]);
+    return !!selectedClassId && !!selectedSubjectId && (!!rubricFile || !!selectedTemplateId) && paperFiles.length > 0;
+  }, [selectedClassId, selectedSubjectId, rubricFile, selectedTemplateId, paperFiles]);
 
   const handleRubricChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setRubricFile(e.target.files?.[0] || null);
+    if (e.target.files?.[0]) setSelectedTemplateId("");
   };
   const handlePapersChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setPaperFiles(e.target.files ? Array.from(e.target.files) : []);
@@ -72,39 +92,82 @@ export default function UploadPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitting(true);
+    setUploadProgress(0);
     setError(null);
     setResult(null);
     try {
       const form = new FormData();
       if (rubricFile) form.append("rubricFile", rubricFile);
+      if (selectedTemplateId && !rubricFile) form.append("templateId", selectedTemplateId);
       paperFiles.forEach((f) => form.append("paperFiles", f));
       form.append("classId", selectedClassId);
       form.append("subjectId", selectedSubjectId);
 
-      const res = await fetch("/api/submissions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: form,
+      const res = await new Promise<Response>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/submissions");
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+
+        xhr.upload.addEventListener("progress", (ev) => {
+          if (ev.lengthComputable) {
+            setUploadProgress(Math.round((ev.loaded / ev.total) * 100));
+          }
+        });
+
+        xhr.onload = () =>
+          resolve(
+            new Response(xhr.responseText, {
+              status: xhr.status,
+              headers: new Headers({ "Content-Type": xhr.getResponseHeader("Content-Type") || "application/json" }),
+            })
+          );
+        xhr.onerror = () => reject(new Error("Upload failed"));
+        xhr.send(form);
       });
 
+      const data = (await res.json().catch(() => ({}))) as { submissionId?: string; papers?: unknown[] };
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || `Upload failed (${res.status})`);
+        throw new Error(data.error || `Upload failed (${res.status})`);
       }
-      const data = await res.json();
-      const count = data.totalPapers ?? paperFiles.length;
+      const count = data.papers?.length ?? paperFiles.length;
       setResult(`Success! ${count} paper(s) submitted for grading. Submission ID: ${data.submissionId}`);
+      setLastSubmissionId(data.submissionId ?? null);
       setRubricFile(null);
+      setSelectedTemplateId("");
       setPaperFiles([]);
       setSelectedSubjectId("");
+      setUploadProgress(100);
       (document.getElementById("rubric-upload") as HTMLInputElement)?.form?.reset();
       (document.getElementById("papers-upload") as HTMLInputElement)?.form?.reset();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setSubmitting(false);
+      setUploadProgress(0);
     }
   }
+
+  const handleRetry = async () => {
+    if (!lastSubmissionId || !token) return;
+    setRetrying(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/submissions/${lastSubmissionId}/retry`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = (await res.json().catch(() => ({}))) as { success?: boolean; message?: string; error?: string };
+      if (res.ok && data.success) {
+        setResult((prev) => (prev ? `${prev} Retry triggered.` : "Retry triggered."));
+      } else {
+        setError(data.error || data.message || "Retry failed");
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Retry failed");
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const steps = [
     { num: 1, title: "Select Class", desc: "Choose the class you're grading for" },
@@ -122,7 +185,21 @@ export default function UploadPage() {
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-      {result && <Alert severity="success" sx={{ mb: 2 }}>{result}</Alert>}
+      {result && (
+        <Alert
+          severity="success"
+          sx={{ mb: 2 }}
+          action={
+            lastSubmissionId && (
+              <Button color="inherit" size="small" onClick={handleRetry} disabled={retrying}>
+                {retrying ? "Retrying..." : "Retry if stuck"}
+              </Button>
+            )
+          }
+        >
+          {result}
+        </Alert>
+      )}
 
       <Card sx={{ mb: 3 }}>
         <CardContent>
@@ -170,21 +247,39 @@ export default function UploadPage() {
                 <>
                   <Grid size={{ xs: 12 }}>
                     <FormControl fullWidth required>
-                      <InputLabel shrink>Rubric File (PDF)</InputLabel>
-                      <Input
-                        id="rubric-upload"
-                        type="file"
-                        inputProps={{ accept: "application/pdf" }}
-                        onChange={handleRubricChange}
-                      />
+                      <InputLabel shrink>Rubric File (PDF) or Template</InputLabel>
+                      <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <Input
+                          id="rubric-upload"
+                          type="file"
+                          inputProps={{ accept: "application/pdf" }}
+                          onChange={handleRubricChange}
+                        />
+                        <SearchableSelect
+                          label="Or use a template"
+                          value={selectedTemplateId}
+                          onChange={(v) => {
+                            setSelectedTemplateId(v);
+                            if (v) setRubricFile(null);
+                          }}
+                          options={templates.map((t) => ({ id: t.id, label: `${t.name} - ${t.description}` }))}
+                          emptyLabel="No template"
+                          width={320}
+                        />
+                      </Box>
                       {rubricFile && (
                         <FormHelperText sx={{ color: "success.main" }}>✓ {rubricFile.name}</FormHelperText>
+                      )}
+                      {selectedTemplateId && !rubricFile && (
+                        <FormHelperText sx={{ color: "success.main" }}>
+                          ✓ Using template: {templates.find((t) => t.id === selectedTemplateId)?.name}
+                        </FormHelperText>
                       )}
                     </FormControl>
                   </Grid>
                   <Grid size={{ xs: 12 }}>
                     <FormControl fullWidth required>
-                      <InputLabel shrink>Student Papers (PDF, up to 5)</InputLabel>
+                      <InputLabel shrink>Student Papers (PDF, up to 25)</InputLabel>
                       <Input
                         id="papers-upload"
                         type="file"
@@ -201,6 +296,14 @@ export default function UploadPage() {
                 </>
               )}
               <Grid size={{ xs: 12 }}>
+                {submitting && uploadProgress > 0 && uploadProgress < 100 && (
+                  <Box sx={{ width: "100%", mb: 2 }}>
+                    <LinearProgress variant="determinate" value={uploadProgress} sx={{ height: 8, borderRadius: 1 }} />
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: "block" }}>
+                      Uploading... {uploadProgress}%
+                    </Typography>
+                  </Box>
+                )}
                 <Button
                   type="submit"
                   variant="contained"
@@ -209,7 +312,7 @@ export default function UploadPage() {
                   startIcon={<CloudUpload />}
                   fullWidth
                 >
-                  {submitting ? "Processing..." : "Submit for Grading"}
+                  {submitting ? (uploadProgress > 0 ? "Uploading..." : "Processing...") : "Submit for Grading"}
                 </Button>
               </Grid>
             </Grid>

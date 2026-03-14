@@ -5,6 +5,11 @@ import FormData from "form-data";
 import fetch from "node-fetch";
 import { PrismaClient } from "@prisma/client";
 import { authenticateToken, checkRole } from "../auth/auth";
+import { uploadRateLimiter } from "../lib/rate-limit";
+import { logger } from "../lib/logger";
+import { logAudit, getClientIp } from "../lib/audit";
+import { sendGradingCompleteEmail } from "../lib/email";
+import { getTemplatePdfBase64 } from "../data/rubric-templates";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -74,27 +79,107 @@ function appendBufferToFormData(
 // Clean up file buffers for a completed submission
 function cleanupSubmissionBuffers(submissionId: string) {
   fileBufferCache.delete(submissionId);
-  console.log(`[cleanup] Removed file buffers for submission: ${submissionId}`);
+  logger.debug({ submissionId }, "Removed file buffers for submission");
+}
+
+// Trigger next ungraded paper for a submission (used by n8n callback and retry)
+async function triggerNextPaper(submissionId: string): Promise<boolean> {
+  const submissionPapers = await prisma.paper.findMany({
+    where: { submission_id: submissionId },
+    orderBy: { created_at: "asc" },
+  });
+
+  const gradedPapers = await prisma.grade.findMany({
+    where: { paper_id: { in: submissionPapers.map((p) => p.id) } },
+  });
+
+  const gradedPaperIds = new Set(gradedPapers.map((g) => g.paper_id));
+  const nextPaper = submissionPapers.find((p) => !gradedPaperIds.has(p.id));
+
+  if (!nextPaper) return false;
+
+  const metaRows = (await prisma.$queryRawUnsafe<any[]>(
+    `SELECT upload_type FROM tbl_submission_meta WHERE submission_id = $1::uuid LIMIT 1`,
+    submissionId
+  )) as any[];
+
+  const fileBuffers = fileBufferCache.get(submissionId);
+  if (!fileBuffers) {
+    logger.error({ submissionId }, "File buffers not found");
+
+    return false;
+  }
+
+  const uploadType = metaRows[0]?.upload_type || "papers";
+  const paperBuffer = fileBuffers.paperBuffers.get(nextPaper.id);
+
+  if (!paperBuffer) {
+    logger.error({ paperId: nextPaper.id }, "Paper buffer not found");
+    return false;
+  }
+
+  const formData = new FormData();
+  appendBufferToFormData(formData, "rubricFile", fileBuffers.rubricBuffer, "rubric.pdf", "application/pdf");
+  if (uploadType === "exam-projects" && fileBuffers.questionBuffer) {
+    appendBufferToFormData(formData, "questionFile", fileBuffers.questionBuffer, "question.pdf", "application/pdf");
+  }
+  appendBufferToFormData(
+    formData,
+    "paperFile",
+    paperBuffer,
+    nextPaper.original_filename || "paper.pdf",
+    nextPaper.mime_type || "application/pdf"
+  );
+  formData.append("dbSubmissionId", submissionId);
+  formData.append("dbPaperId", nextPaper.id);
+  formData.append("originalFilename", nextPaper.original_filename || "");
+
+  const webhookUrl =
+    uploadType === "exam-projects" ? N8N_EXAM_PROJECTS_WEBHOOK_URL : N8N_WEBHOOK_URL;
+
+  if (!webhookUrl) return false;
+
+  const n8nResponse = await fetch(webhookUrl, { method: "POST", body: formData });
+  return n8nResponse.ok;
 }
 
 // POST /api/submissions - Upload papers for grading
 router.post(
   "/submissions",
+  uploadRateLimiter,
   authenticateToken,
   checkRole(["TEACHER", "ADMIN"]),
   upload.fields([
     { name: "rubricFile", maxCount: 1 },
-    { name: "paperFiles", maxCount: 5 },
+    { name: "paperFiles", maxCount: 25 },
   ]),
   async (req: Request, res: Response) => {
     try {
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-      const rubricFile = files.rubricFile?.[0];
+      let rubricFile = files.rubricFile?.[0];
       const paperFiles = files.paperFiles || [];
-      const { subjectName, subjectCode, uploadType, classId, subjectId: bodySubjectId } = req.body;
+      const { subjectName, subjectCode, uploadType, classId, subjectId: bodySubjectId, templateId } = req.body;
+
+      if (!rubricFile && templateId) {
+        const template = await prisma.rubricTemplate.findUnique({
+          where: { id: templateId },
+        });
+        if (!template) {
+          return res.status(400).json({ error: "Invalid rubric template" });
+        }
+        const pdfBuffer = Buffer.from(getTemplatePdfBase64(), "base64");
+        rubricFile = {
+          fieldname: "rubricFile",
+          originalname: `rubric-${template.name}.pdf`,
+          encoding: "7bit",
+          mimetype: "application/pdf",
+          buffer: pdfBuffer,
+          size: pdfBuffer.length,
+        } as Express.Multer.File;
+      }
 
       if (!rubricFile) {
-        return res.status(400).json({ error: "Rubric file is required" });
+        return res.status(400).json({ error: "Rubric file or template is required" });
       }
 
       if (!paperFiles || paperFiles.length === 0) {
@@ -103,8 +188,9 @@ router.post(
           .json({ error: "At least one paper file is required" });
       }
 
-      console.log(
-        `[upload] Processing ${paperFiles.length} papers with rubric: ${rubricFile.originalname}`
+      logger.info(
+        { paperCount: paperFiles.length, rubricName: rubricFile.originalname },
+        "Processing papers with rubric"
       );
 
       // Handle subject (prioritize new classId/subjectId approach, fallback to old subjectName approach)
@@ -136,6 +222,21 @@ router.post(
       
       // Verify class and subject assignment if classId provided
       if (classId && subjectId) {
+        const classData = await prisma.class.findUnique({
+          where: { id: classId },
+        });
+
+        if (!classData) {
+          return res.status(400).json({ error: "Class not found" });
+        }
+
+        // Teachers can only upload to classes they're assigned to
+        const userRole = req.user?.role;
+        const userId = req.user?.userId;
+        if (userRole === "TEACHER" && classData.teacher_id !== userId) {
+          return res.status(403).json({ error: "Access denied to this class" });
+        }
+
         const classSubject = await prisma.classSubject.findFirst({
           where: {
             class_id: classId,
@@ -149,7 +250,7 @@ router.post(
           });
         }
         
-        console.log(`[upload] Verified subject ${subjectId} is assigned to class ${classId}`);
+        logger.debug({ subjectId, classId }, "Verified subject assigned to class");
       }
 
       // Get subject name for rubric title
@@ -177,7 +278,17 @@ router.post(
           id: randomUUID(),
           rubric_id: rubric.id,
           status: "PENDING",
+          ...(req.user?.userId && { submitted_by_id: req.user.userId }),
         },
+      });
+
+      await logAudit({
+        ...(req.user?.userId && { userId: req.user.userId }),
+        action: "UPLOAD",
+        resource: "submission",
+        resourceId: submission.id,
+        details: { paperCount: paperFiles.length, subjectId },
+        ...(getClientIp(req) && { ipAddress: getClientIp(req) }),
       });
 
       // Validate buffers exist (memory storage)
@@ -284,10 +395,9 @@ router.post(
         throw new Error(`Missing ${key} in environment`);
       }
 
-      console.log(
-        `[upload] Sending first ${
-          uploadType === "exam-projects" ? "exam project" : "paper"
-        } to n8n: ${firstPaper.original_filename}`
+      logger.info(
+        { uploadType, filename: firstPaper.original_filename },
+        `Sending first ${uploadType === "exam-projects" ? "exam project" : "paper"} to n8n`
       );
 
       const n8nResponse = await fetch(webhookUrl, {
@@ -300,7 +410,7 @@ router.post(
       }
 
       const n8nResult = await n8nResponse.text();
-      console.log(`[upload] n8n response: ${n8nResult}`);
+      logger.debug({ n8nResult }, "n8n response");
 
       res.json({
         success: true,
@@ -312,7 +422,7 @@ router.post(
         message: `Successfully uploaded ${papers.length} papers. First paper sent for grading.`,
       });
     } catch (error: any) {
-      console.error("[upload] Error:", error);
+      logger.error({ err: error }, "Upload error");
       res.status(500).json({ error: error.message || "Upload failed" });
     }
   }
@@ -321,11 +431,8 @@ router.post(
 // POST /api/n8n/grades - Callback from n8n for paper grading results
 router.post("/n8n/grades", async (req: Request, res: Response) => {
   try {
-    console.log("[n8n-grades] Received grading results from n8n");
-    console.log(
-      "[n8n-grades] Request body:",
-      JSON.stringify(req.body, null, 2)
-    );
+    logger.info("Received grading results from n8n");
+    logger.debug({ body: req.body }, "n8n-grades request body");
 
     let grades = [];
     if (Array.isArray(req.body)) {
@@ -340,7 +447,7 @@ router.post("/n8n/grades", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Invalid payload format" });
     }
 
-    console.log(`[n8n-grades] Processing ${grades.length} grade(s)`);
+    logger.info({ count: grades.length }, "Processing grades");
 
     for (const grade of grades) {
       const {
@@ -356,9 +463,7 @@ router.post("/n8n/grades", async (req: Request, res: Response) => {
         badComments,
       } = grade;
 
-      console.log(
-        `[n8n-grades] Processing grade for: ${studentName}, score: ${score}`
-      );
+      logger.debug({ studentName, score }, "Processing grade");
 
       // Find paper using multiple strategies
       let paper = null;
@@ -368,10 +473,9 @@ router.post("/n8n/grades", async (req: Request, res: Response) => {
         paper = await prisma.paper.findUnique({
           where: { id: dbPaperId || paperId },
         });
-        console.log(
-          `[n8n-grades] Found paper by ID: ${
-            paper ? paper.original_filename : "not found"
-          }`
+        logger.debug(
+          { found: !!paper, filename: paper?.original_filename },
+          "Found paper by ID"
         );
       }
 
@@ -381,10 +485,9 @@ router.post("/n8n/grades", async (req: Request, res: Response) => {
           where: { original_filename: originalFilename },
           orderBy: { created_at: "desc" },
         });
-        console.log(
-          `[n8n-grades] Found paper by filename: ${
-            paper ? paper.original_filename : "not found"
-          }`
+        logger.debug(
+          { found: !!paper, filename: paper?.original_filename },
+          "Found paper by filename"
         );
       }
 
@@ -395,10 +498,9 @@ router.post("/n8n/grades", async (req: Request, res: Response) => {
           where: { submission_id: submissionIdToUse },
           orderBy: { created_at: "desc" },
         });
-        console.log(
-          `[n8n-grades] Found paper by submission: ${
-            paper ? paper.original_filename : "not found"
-          }`
+        logger.debug(
+          { found: !!paper, filename: paper?.original_filename },
+          "Found paper by submission"
         );
       }
 
@@ -408,10 +510,9 @@ router.post("/n8n/grades", async (req: Request, res: Response) => {
           where: { student_name: studentName },
           orderBy: { created_at: "desc" },
         });
-        console.log(
-          `[n8n-grades] Found paper by student name fallback: ${
-            paper ? paper.original_filename : "not found"
-          }`
+        logger.debug(
+          { found: !!paper, filename: paper?.original_filename },
+          "Found paper by student name fallback"
         );
       }
 
@@ -420,15 +521,14 @@ router.post("/n8n/grades", async (req: Request, res: Response) => {
         paper = await prisma.paper.findFirst({
           orderBy: { created_at: "desc" },
         });
-        console.log(
-          `[n8n-grades] Found paper by last resort fallback: ${
-            paper ? paper.original_filename : "not found"
-          }`
+        logger.debug(
+          { found: !!paper, filename: paper?.original_filename },
+          "Found paper by last resort fallback"
         );
       }
 
       if (!paper) {
-        console.error(`[n8n-grades] Paper not found for grade: ${studentName}`);
+        logger.warn({ studentName }, "Paper not found for grade");
         continue;
       }
 
@@ -449,8 +549,9 @@ router.post("/n8n/grades", async (req: Request, res: Response) => {
       });
 
       if (existingGrade) {
-        console.log(
-          `[n8n-grades] Paper ${paper.original_filename} already has a grade, skipping duplicate processing`
+        logger.debug(
+          { filename: paper.original_filename },
+          "Paper already has grade, skipping duplicate"
         );
         continue;
       }
@@ -470,8 +571,9 @@ router.post("/n8n/grades", async (req: Request, res: Response) => {
         },
       });
 
-      console.log(
-        `[n8n-grades] Created grade: ${gradeResult.id} for paper: ${paper.original_filename}`
+      logger.info(
+        { gradeId: gradeResult.id, filename: paper.original_filename },
+        "Created grade for paper"
       );
     }
 
@@ -526,147 +628,126 @@ router.post("/n8n/grades", async (req: Request, res: Response) => {
 
       if (paper) {
         processedSubmissions.add(paper.submission_id);
-        console.log(
-          `[n8n-grades] Added submission ${paper.submission_id} to sequential processing queue`
+        logger.debug(
+          { submissionId: paper.submission_id },
+          "Added submission to sequential processing queue"
         );
       } else {
-        console.log(
-          `[n8n-grades] Could not find paper for grade, skipping sequential processing`
-        );
+        logger.debug("Could not find paper for grade, skipping sequential processing");
       }
     }
 
-    console.log(
-      `[n8n-grades] Will process ${processedSubmissions.size} unique submissions for sequential processing`
+    logger.info(
+      { count: processedSubmissions.size },
+      "Processing unique submissions for sequential grading"
     );
 
     // Process each unique submission once
     for (const submissionId of processedSubmissions) {
+      const triggered = await triggerNextPaper(submissionId);
+      if (triggered) continue;
+
+      // No next paper to send - check if all are graded, then mark completed
       const submissionPapers = await prisma.paper.findMany({
         where: { submission_id: submissionId },
-        orderBy: { created_at: "asc" },
       });
-
-      const gradedPapers = await prisma.grade.findMany({
-        where: {
-          paper_id: { in: submissionPapers.map((p) => p.id) },
-        },
+      const gradedCount = await prisma.grade.count({
+        where: { submission_id: submissionId },
       });
-
-      const gradedPaperIds = new Set(gradedPapers.map((g) => g.paper_id));
-      const nextPaper = submissionPapers.find((p) => !gradedPaperIds.has(p.id));
-
-      if (nextPaper) {
-        console.log(
-          `[n8n-grades] Triggering next paper: ${nextPaper.original_filename}`
-        );
-
-        // Get upload type and file buffers from cache
-        const metaRows = (await prisma.$queryRawUnsafe<any[]>(
-          `SELECT upload_type FROM tbl_submission_meta WHERE submission_id = $1::uuid LIMIT 1`,
-          submissionId
-        )) as any[];
-
-        const fileBuffers = fileBufferCache.get(submissionId);
-        if (!fileBuffers) {
-          console.error(
-            `[n8n-grades] File buffers not found for submission: ${submissionId}`
-          );
-          continue;
-        }
-
-        const uploadType = metaRows[0]?.upload_type || "papers";
-        const paperBuffer = fileBuffers.paperBuffers.get(nextPaper.id);
-
-        if (!paperBuffer) {
-          console.error(
-            `[n8n-grades] Paper buffer not found for paper: ${nextPaper.id}`
-          );
-          continue;
-        }
-
-        const formData = new FormData();
-        appendBufferToFormData(
-          formData,
-          "rubricFile",
-          fileBuffers.rubricBuffer,
-          "rubric.pdf",
-          "application/pdf"
-        );
-
-        // Add question file for exam projects
-        if (uploadType === "exam-projects" && fileBuffers.questionBuffer) {
-          appendBufferToFormData(
-            formData,
-            "questionFile",
-            fileBuffers.questionBuffer,
-            "question.pdf",
-            "application/pdf"
-          );
-        }
-
-        appendBufferToFormData(
-          formData,
-          "paperFile",
-          paperBuffer,
-          nextPaper.original_filename || "paper.pdf",
-          nextPaper.mime_type || "application/pdf"
-        );
-
-        // Send metadata as separate form fields
-        formData.append("dbSubmissionId", submissionId);
-        formData.append("dbPaperId", nextPaper.id);
-        formData.append("originalFilename", nextPaper.original_filename);
-
-        // Choose webhook URL based on upload type
-        const webhookUrl =
-          uploadType === "exam-projects"
-            ? N8N_EXAM_PROJECTS_WEBHOOK_URL
-            : N8N_WEBHOOK_URL;
-
-        if (!webhookUrl) {
-          const key =
-            uploadType === "exam-projects"
-              ? "N8N_EXAM_PROJECTS_WEBHOOK_URL"
-              : "N8N_WEBHOOK_URL";
-          throw new Error(`Missing ${key} in environment`);
-        }
-
-        const n8nResponse = await fetch(webhookUrl, {
-          method: "POST",
-          body: formData,
-        });
-
-        if (n8nResponse.ok) {
-          console.log(
-            `[n8n-grades] Successfully triggered next paper: ${nextPaper.original_filename}`
-          );
-        } else {
-          console.error(
-            `[n8n-grades] Failed to trigger next paper: ${n8nResponse.statusText}`
-          );
-        }
-      } else {
+      if (gradedCount >= submissionPapers.length) {
         // All papers graded, mark submission as completed and cleanup buffers
         await prisma.submission.update({
           where: { id: submissionId },
           data: { status: "COMPLETED" },
         });
         cleanupSubmissionBuffers(submissionId);
-        console.log(
-          `[n8n-grades] All papers graded for submission: ${submissionId}`
-        );
+        logger.info({ submissionId }, "All papers graded for submission");
+
+        // Notify teacher when grading completes
+        const submissionWithUser = await prisma.submission.findUnique({
+          where: { id: submissionId },
+          include: { submitted_by: true, tbl_papers: true },
+        });
+        const paperCount = submissionWithUser?.tbl_papers?.length ?? 0;
+        if (submissionWithUser?.submitted_by?.email && paperCount > 0) {
+          const appUrl = process.env.APP_URL || "http://localhost:5173";
+          await sendGradingCompleteEmail(
+            submissionWithUser.submitted_by.email,
+            submissionWithUser.submitted_by.name,
+            paperCount,
+            `${appUrl}/results`
+          );
+        }
       }
     }
 
     res.json({ success: true, message: `Processed ${grades.length} grade(s)` });
   } catch (error: any) {
-    console.error("[n8n-grades] Error:", error);
+    logger.error({ err: error }, "n8n-grades error");
     res
       .status(500)
       .json({ error: error.message || "Failed to process grades" });
   }
 });
+
+// POST /api/submissions/:submissionId/retry - Retry grading for next ungraded paper
+router.post(
+  "/submissions/:submissionId/retry",
+  authenticateToken,
+  checkRole(["TEACHER", "ADMIN"]),
+  async (req: Request, res: Response) => {
+    try {
+      const submissionId = req.params.submissionId;
+      if (!submissionId) {
+        return res.status(400).json({ error: "Submission ID is required" });
+      }
+
+      const submission = await prisma.submission.findUnique({
+        where: { id: submissionId },
+        include: { tbl_papers: true },
+      });
+
+      if (!submission) {
+        return res.status(404).json({ error: "Submission not found" });
+      }
+
+      if (submission.status === "COMPLETED") {
+        return res.status(400).json({ error: "Submission already completed. Cannot retry." });
+      }
+
+      const userRole = req.user?.role;
+      const userId = req.user?.userId;
+      if (userRole === "TEACHER" && submission.submitted_by_id !== userId) {
+        return res.status(403).json({ error: "You can only retry your own submissions" });
+      }
+
+      const fileBuffers = fileBufferCache.get(submissionId);
+      if (!fileBuffers) {
+        return res.status(400).json({
+          error: "File buffers no longer available. Retry only works while grading is in progress.",
+        });
+      }
+
+      const success = await triggerNextPaper(submissionId);
+      if (success) {
+        logger.info({ submissionId }, "Retry triggered successfully");
+        return res.json({ success: true, message: "Grading retry triggered" });
+      }
+
+      const gradedCount = await prisma.grade.count({
+        where: { submission_id: submissionId },
+      });
+      if (gradedCount >= submission.tbl_papers.length) {
+        return res.json({ success: false, message: "All papers already graded" });
+      }
+
+      return res.status(500).json({ error: "Failed to trigger retry" });
+    } catch (error: any) {
+      logger.error({ err: error }, "Retry error");
+      res.status(500).json({ error: error.message || "Retry failed" });
+    }
+  }
+);
 
 // GET /api/grades - Get all grades (with RBAC filtering)
 router.get(
@@ -732,9 +813,9 @@ router.get(
 
       query += ` ORDER BY g.created_at DESC`;
 
-      console.log(
-        `[grades] Fetching grades for ${userRole} (userId: ${userId}) with filters:`,
-        { classId, subjectId }
+      logger.debug(
+        { userRole, userId, classId, subjectId },
+        "Fetching grades"
       );
 
       const rows = (await prisma.$queryRawUnsafe<any[]>(
@@ -757,14 +838,123 @@ router.get(
         classId: row.class_id,
       }));
 
-      console.log(`[grades] Returning ${grades.length} grades`);
+      logger.debug({ count: grades.length }, "Returning grades");
 
       res.json({ grades });
     } catch (error: any) {
-      console.error("[grades] Error:", error);
+      logger.error({ err: error }, "Grades fetch error");
       res
         .status(500)
         .json({ error: error.message || "Failed to fetch grades" });
+    }
+  }
+);
+
+// GET /api/grades/export - Export grades as CSV or Excel
+router.get(
+  "/grades/export",
+  authenticateToken,
+  checkRole(["TEACHER", "ADMIN"]),
+  async (req: Request, res: Response) => {
+    try {
+      const { subjectId, classId, format } = req.query;
+      const userRole = req.user?.role;
+      const userId = req.user?.userId;
+
+      let query = `
+      SELECT 
+        g.student_name,
+        g.total_score,
+        g.criteria_scores,
+        g.created_at as graded_at,
+        p.original_filename,
+        sj.name as subject_name,
+        sj.code as subject_code
+      FROM tbl_grades g
+      JOIN tbl_papers p ON g.paper_id = p.id
+      LEFT JOIN tbl_subjects sj ON p.subject_id = sj.id
+      LEFT JOIN tbl_class_subjects cs ON sj.id = cs.subject_id
+      LEFT JOIN tbl_classes c ON cs.class_id = c.id
+    `;
+
+      const conditions = [];
+      const params = [];
+      let paramIndex = 1;
+
+      if (userRole === "TEACHER") {
+        conditions.push(`c.teacher_id = $${paramIndex}::uuid`);
+        params.push(userId);
+        paramIndex++;
+      }
+      if (classId) {
+        conditions.push(`cs.class_id = $${paramIndex}::uuid`);
+        params.push(classId);
+        paramIndex++;
+      }
+      if (subjectId) {
+        conditions.push(`sj.id = $${paramIndex}::uuid`);
+        params.push(subjectId);
+        paramIndex++;
+      }
+      if (conditions.length > 0) {
+        query += ` WHERE ${conditions.join(" AND ")}`;
+      }
+      query += ` ORDER BY g.created_at DESC`;
+
+      const rows = (await prisma.$queryRawUnsafe<any[]>(query, ...params)) as any[];
+
+      const exportFormat = (format as string) || "csv";
+      const goodComments = (r: any) => r.criteria_scores?.goodComments || "";
+      const badComments = (r: any) => r.criteria_scores?.badComments || "";
+
+      if (exportFormat === "xlsx" || exportFormat === "excel") {
+        const XLSX = await import("xlsx");
+        const data = rows.map((r) => ({
+          "Student Name": r.student_name,
+          "Score": Number(r.total_score),
+          "Subject": r.subject_name,
+          "Code": r.subject_code,
+          "Filename": r.original_filename,
+          "Graded At": r.graded_at ? new Date(r.graded_at).toISOString() : "",
+          "Good Comments": goodComments(r),
+          "Bad Comments": badComments(r),
+        }));
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Grades");
+        const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename="grades-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+        res.send(buf);
+      } else {
+        const headers = ["Student Name", "Score", "Subject", "Code", "Filename", "Graded At", "Good Comments", "Bad Comments"];
+        const escapeCsv = (v: string) => {
+          const s = String(v ?? "");
+          return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const csvRows = [
+          headers.join(","),
+          ...rows.map((r) =>
+            [
+              escapeCsv(r.student_name),
+              Number(r.total_score),
+              escapeCsv(r.subject_name),
+              escapeCsv(r.subject_code),
+              escapeCsv(r.original_filename),
+              r.graded_at ? new Date(r.graded_at).toISOString() : "",
+              escapeCsv(goodComments(r)),
+              escapeCsv(badComments(r)),
+            ].join(",")
+          ),
+        ];
+        const csv = csvRows.join("\n");
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename="grades-${new Date().toISOString().slice(0, 10)}.csv"`);
+        res.send(csv);
+      }
+    } catch (error: any) {
+      logger.error({ err: error }, "Grades export error");
+      res.status(500).json({ error: error.message || "Failed to export grades" });
     }
   }
 );
@@ -807,7 +997,7 @@ router.put(
         },
       });
 
-      console.log(`[grades] Updated feedback for grade: ${id}`);
+      logger.info({ gradeId: id }, "Updated feedback for grade");
 
       res.json({
         success: true,
@@ -819,7 +1009,7 @@ router.put(
         },
       });
     } catch (error: any) {
-      console.error("[grades] Error updating feedback:", error);
+      logger.error({ err: error }, "Error updating feedback");
       res
         .status(500)
         .json({ error: error.message || "Failed to update feedback" });
@@ -827,19 +1017,35 @@ router.put(
   }
 );
 
-// GET /api/subjects - Get all subjects
+// GET /api/subjects - Get all subjects (ADMIN) or only subjects in teacher's classes (TEACHER)
 router.get(
   "/subjects",
   authenticateToken,
   checkRole(["TEACHER", "ADMIN"]),
   async (req: Request, res: Response) => {
     try {
-      const rows = (await prisma.$queryRawUnsafe<any[]>(
-        `SELECT id, name, code, created_at FROM tbl_subjects ORDER BY name ASC`
-      )) as any[];
+      const userRole = req.user?.role;
+      const userId = req.user?.userId;
+
+      let rows: any[];
+      if (userRole === "TEACHER" && userId) {
+        rows = (await prisma.$queryRawUnsafe<any[]>(
+          `SELECT DISTINCT s.id, s.name, s.code, s.created_at
+           FROM tbl_subjects s
+           JOIN tbl_class_subjects cs ON s.id = cs.subject_id
+           JOIN tbl_classes c ON cs.class_id = c.id
+           WHERE c.teacher_id = $1::uuid
+           ORDER BY s.name ASC`,
+          userId
+        )) as any[];
+      } else {
+        rows = (await prisma.$queryRawUnsafe<any[]>(
+          `SELECT id, name, code, created_at FROM tbl_subjects ORDER BY name ASC`
+        )) as any[];
+      }
       res.json({ subjects: rows });
     } catch (error: any) {
-      console.error("[subjects] Error:", error);
+      logger.error({ err: error }, "Subjects fetch error");
       res
         .status(500)
         .json({ error: error.message || "Failed to fetch subjects" });
@@ -847,11 +1053,11 @@ router.get(
   }
 );
 
-// POST /api/subjects - Create new subject
+// POST /api/subjects - Create new subject (Admin only)
 router.post(
   "/subjects",
   authenticateToken,
-  checkRole(["TEACHER", "ADMIN"]),
+  checkRole(["ADMIN"]),
   async (req: Request, res: Response) => {
     try {
       const { name, code } = req.body;
@@ -872,7 +1078,7 @@ router.post(
 
       res.json({ subject: row[0] });
     } catch (error: any) {
-      console.error("[subjects] Error:", error);
+      logger.error({ err: error }, "Subjects create error");
       res
         .status(500)
         .json({ error: error.message || "Failed to create subject" });
@@ -880,44 +1086,77 @@ router.post(
   }
 );
 
-// GET /api/dashboard/stats - Get dashboard statistics
+// GET /api/dashboard/stats - Get dashboard statistics (Admin and Teacher only)
 router.get(
   "/dashboard/stats",
   authenticateToken,
+  checkRole(["ADMIN", "TEACHER"]),
   async (req: Request, res: Response) => {
     try {
-      console.log("[dashboard-stats] Fetching dashboard statistics...");
+      logger.debug("Fetching dashboard statistics");
 
+      const userRole = req.user?.role;
+      const userId = req.user?.userId;
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
 
-      // Total number of courses/subjects
-      const totalCourses = await prisma.subject.count();
-      console.log("[dashboard-stats] Total courses:", totalCourses);
+      let totalCourses: number;
+      let totalGraded: number;
+      let gradedThisWeek: number;
+      let studentsGraded: number;
 
-      // Total papers graded all time
-      const totalGraded = await prisma.grade.count();
-      console.log("[dashboard-stats] Total graded:", totalGraded);
+      if (userRole === "TEACHER" && userId) {
+        // Teachers: scope stats to their classes only
+        const teacherClasses = await prisma.class.findMany({
+          where: { teacher_id: userId },
+          select: { id: true },
+        });
+        const classIds = teacherClasses.map((c) => c.id);
 
-      // Papers graded this week
-      const gradedThisWeek = await prisma.grade.count({
-        where: {
-          created_at: {
-            gte: weekAgo,
+        const classSubjects = await prisma.classSubject.findMany({
+          where: { class_id: { in: classIds } },
+          select: { subject_id: true },
+        });
+        const subjectIds = [...new Set(classSubjects.map((cs) => cs.subject_id))];
+
+        totalCourses = subjectIds.length;
+
+        const gradeWhere = {
+          tbl_papers: {
+            subject_id: { in: subjectIds },
           },
-        },
-      });
-      console.log("[dashboard-stats] Graded this week:", gradedThisWeek);
+        };
 
-      // Number of unique students graded
-      const uniqueStudents = await prisma.grade.findMany({
-        select: {
-          student_name: true,
-        },
-        distinct: ["student_name"],
-      });
-      const studentsGraded = uniqueStudents.length;
-      console.log("[dashboard-stats] Students graded:", studentsGraded);
+        totalGraded = await prisma.grade.count({
+          where: gradeWhere,
+        });
+
+        gradedThisWeek = await prisma.grade.count({
+          where: {
+            ...gradeWhere,
+            created_at: { gte: weekAgo },
+          },
+        });
+
+        const uniqueStudents = await prisma.grade.findMany({
+          where: gradeWhere,
+          select: { student_name: true },
+          distinct: ["student_name"],
+        });
+        studentsGraded = uniqueStudents.length;
+      } else {
+        // Admins: global stats
+        totalCourses = await prisma.subject.count();
+        totalGraded = await prisma.grade.count();
+        gradedThisWeek = await prisma.grade.count({
+          where: { created_at: { gte: weekAgo } },
+        });
+        const uniqueStudents = await prisma.grade.findMany({
+          select: { student_name: true },
+          distinct: ["student_name"],
+        });
+        studentsGraded = uniqueStudents.length;
+      }
 
       const result = {
         totalCourses,
@@ -926,11 +1165,11 @@ router.get(
         studentsGraded,
       };
 
-      console.log("[dashboard-stats] Returning:", result);
+      logger.debug({ result }, "Dashboard stats");
 
       res.json(result);
     } catch (error: any) {
-      console.error("[dashboard-stats] Error:", error);
+      logger.error({ err: error }, "Dashboard stats error");
       res
         .status(500)
         .json({ error: error.message || "Failed to fetch dashboard stats" });
@@ -952,7 +1191,7 @@ router.get("/health", async (req: Request, res: Response) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    console.error("[health] Error:", error);
+    logger.error({ err: error }, "Health check error");
     return res.status(500).json({
       status: "ERROR",
       error: error.message,
@@ -964,12 +1203,13 @@ router.get("/health", async (req: Request, res: Response) => {
 // POST /api/exam-projects - Upload exam projects for grading
 router.post(
   "/exam-projects",
+  uploadRateLimiter,
   authenticateToken,
   checkRole(["TEACHER", "ADMIN"]),
   examProjectsUpload.fields([
     { name: "rubricFile", maxCount: 1 },
     { name: "questionFile", maxCount: 1 },
-    { name: "paperFiles", maxCount: 5 },
+    { name: "paperFiles", maxCount: 25 },
   ]),
   async (req: Request, res: Response) => {
     try {
@@ -993,8 +1233,13 @@ router.post(
           .json({ error: "At least one exam project file is required" });
       }
 
-      console.log(
-        `[exam-projects] Processing ${paperFiles.length} exam projects with rubric: ${rubricFile.originalname} and question: ${questionFile.originalname}`
+      logger.info(
+        {
+          paperCount: paperFiles.length,
+          rubricName: rubricFile.originalname,
+          questionName: questionFile.originalname,
+        },
+        "Processing exam projects"
       );
 
       // Handle subject (prioritize new classId/subjectId approach, fallback to old subjectName approach)
@@ -1026,6 +1271,21 @@ router.post(
       
       // Verify class and subject assignment if classId provided
       if (classId && subjectId) {
+        const classData = await prisma.class.findUnique({
+          where: { id: classId },
+        });
+
+        if (!classData) {
+          return res.status(400).json({ error: "Class not found" });
+        }
+
+        // Teachers can only upload to classes they're assigned to
+        const userRole = req.user?.role;
+        const userId = req.user?.userId;
+        if (userRole === "TEACHER" && classData.teacher_id !== userId) {
+          return res.status(403).json({ error: "Access denied to this class" });
+        }
+
         const classSubject = await prisma.classSubject.findFirst({
           where: {
             class_id: classId,
@@ -1039,7 +1299,7 @@ router.post(
           });
         }
         
-        console.log(`[exam-projects] Verified subject ${subjectId} is assigned to class ${classId}`);
+        logger.debug({ subjectId, classId }, "Verified subject assigned to class");
       }
 
       // Create or get a dummy rubric for exam projects
@@ -1058,14 +1318,24 @@ router.post(
           });
         }
       } catch (error) {
-        console.warn("[exam-projects] Could not create dummy rubric:", error);
+        logger.warn({ err: error }, "Could not create dummy rubric");
       }
 
       // Create submission
       const submission = await prisma.submission.create({
         data: {
           rubric_id: rubricId,
+          ...(req.user?.userId && { submitted_by_id: req.user.userId }),
         },
+      });
+
+      await logAudit({
+        ...(req.user?.userId && { userId: req.user.userId }),
+        action: "UPLOAD_EXAM_PROJECTS",
+        resource: "submission",
+        resourceId: submission.id,
+        details: { paperCount: paperFiles.length, subjectId },
+        ...(getClientIp(req) && { ipAddress: getClientIp(req) }),
       });
 
       // Validate buffers exist (memory storage)
@@ -1167,9 +1437,14 @@ router.post(
       if (subjectName) formData.append("subjectName", subjectName);
       if (subjectCode) formData.append("subjectCode", subjectCode);
 
-      console.log(
-        `[exam-projects] Sending first exam project to n8n: ${firstPaper.original_filename}`
+      logger.info(
+        { filename: firstPaper.original_filename },
+        "Sending first exam project to n8n"
       );
+
+      if (!N8N_EXAM_PROJECTS_WEBHOOK_URL) {
+        throw new Error("Missing N8N_EXAM_PROJECTS_WEBHOOK_URL in environment");
+      }
 
       const n8nResponse = await fetch(N8N_EXAM_PROJECTS_WEBHOOK_URL, {
         method: "POST",
@@ -1181,7 +1456,7 @@ router.post(
       }
 
       const n8nResult = await n8nResponse.text();
-      console.log(`[exam-projects] n8n response:`, n8nResult);
+      logger.debug({ n8nResult }, "Exam projects n8n response");
 
       res.json({
         submissionId: submission.id,
@@ -1190,7 +1465,7 @@ router.post(
         firstPaperId: firstPaper.id,
       });
     } catch (error: any) {
-      console.error("[exam-projects] Error:", error);
+      logger.error({ err: error }, "Exam projects error");
       res
         .status(500)
         .json({ error: error.message || "Failed to process exam projects" });
@@ -1223,9 +1498,7 @@ router.post(
         return res.status(400).json({ error: "Invalid grades data" });
       }
 
-      console.log(
-        `[exam-grades] Received ${grades.length} exam project grades`
-      );
+      logger.info({ count: grades.length }, "Received exam project grades");
 
       const processedSubmissions = new Set<string>();
 
@@ -1245,7 +1518,7 @@ router.post(
         } = grade;
 
         if (!studentName) {
-          console.warn("[exam-grades] Skipping grade without student name");
+          logger.warn("Skipping grade without student name");
           continue;
         }
 
@@ -1268,16 +1541,12 @@ router.post(
               where: { id: paper.id },
               data: { student_name: studentName },
             });
-            console.log(
-              `[exam-grades] Updated student name to: ${studentName}`
-            );
+            logger.debug({ studentName }, "Updated student name");
           }
         }
 
         if (!paper) {
-          console.warn(
-            `[exam-grades] Paper not found for student: ${studentName}`
-          );
+          logger.warn({ studentName }, "Paper not found for student");
           continue;
         }
 
@@ -1287,9 +1556,7 @@ router.post(
         });
 
         if (existingGrade) {
-          console.log(
-            `[exam-grades] Grade already exists for ${studentName}, skipping`
-          );
+          logger.debug({ studentName }, "Grade already exists, skipping");
           continue;
         }
 
@@ -1339,8 +1606,9 @@ router.post(
           },
         });
 
-        console.log(
-          `[exam-grades] Created grade for ${studentName}: ${totalScore}/100`
+        logger.info(
+          { studentName, totalScore },
+          "Created exam grade"
         );
 
         // Track submission for sequential processing
@@ -1348,8 +1616,9 @@ router.post(
       }
 
       // Sequential processing: trigger next exam project for each unique submission
-      console.log(
-        `[exam-grades] Processing ${processedSubmissions.size} unique submissions for sequential processing`
+      logger.info(
+        { count: processedSubmissions.size },
+        "Processing unique submissions for sequential exam grading"
       );
 
       for (const submissionId of processedSubmissions) {
@@ -1368,23 +1637,26 @@ router.post(
         const nextPaper = submissionPapers.find((p) => !gradedPaperIds.has(p.id));
 
         if (nextPaper) {
-          console.log(
-            `[exam-grades] Triggering next exam project: ${nextPaper.original_filename}`
+          logger.info(
+            { filename: nextPaper.original_filename },
+            "Triggering next exam project"
           );
 
           // Get file buffers from cache
           const fileBuffers = fileBufferCache.get(submissionId);
           if (!fileBuffers) {
-            console.error(
-              `[exam-grades] File buffers not found for submission: ${submissionId}`
+            logger.error(
+              { submissionId },
+              "File buffers not found for submission"
             );
             continue;
           }
 
           const paperBuffer = fileBuffers.paperBuffers.get(nextPaper.id);
           if (!paperBuffer) {
-            console.error(
-              `[exam-grades] Paper buffer not found for paper: ${nextPaper.id}`
+            logger.error(
+              { paperId: nextPaper.id },
+              "Paper buffer not found"
             );
             continue;
           }
@@ -1422,18 +1694,24 @@ router.post(
           formData.append("dbPaperId", nextPaper.id);
           formData.append("originalFilename", nextPaper.original_filename || "");
 
+          if (!N8N_EXAM_PROJECTS_WEBHOOK_URL) {
+            throw new Error("Missing N8N_EXAM_PROJECTS_WEBHOOK_URL in environment");
+          }
+
           const n8nResponse = await fetch(N8N_EXAM_PROJECTS_WEBHOOK_URL, {
             method: "POST",
             body: formData,
           });
 
           if (n8nResponse.ok) {
-            console.log(
-              `[exam-grades] Successfully triggered next exam project: ${nextPaper.original_filename}`
+            logger.info(
+              { filename: nextPaper.original_filename },
+              "Successfully triggered next exam project"
             );
           } else {
-            console.error(
-              `[exam-grades] Failed to trigger next exam project: ${n8nResponse.statusText}`
+            logger.error(
+              { statusText: n8nResponse.statusText },
+              "Failed to trigger next exam project"
             );
           }
         } else {
@@ -1443,15 +1721,28 @@ router.post(
             data: { status: "COMPLETED" },
           });
           cleanupSubmissionBuffers(submissionId);
-          console.log(
-            `[exam-grades] All exam projects graded for submission: ${submissionId}`
-          );
+          logger.info({ submissionId }, "All exam projects graded for submission");
+
+          const submissionWithUser = await prisma.submission.findUnique({
+            where: { id: submissionId },
+            include: { submitted_by: true, tbl_papers: true },
+          });
+          const paperCount = submissionWithUser?.tbl_papers?.length ?? 0;
+          if (submissionWithUser?.submitted_by?.email && paperCount > 0) {
+            const appUrl = process.env.APP_URL || "http://localhost:5173";
+            await sendGradingCompleteEmail(
+              submissionWithUser.submitted_by.email,
+              submissionWithUser.submitted_by.name,
+              paperCount,
+              `${appUrl}/exam-project-results`
+            );
+          }
         }
       }
 
       res.json({ message: "Exam project grades processed successfully" });
     } catch (error: any) {
-      console.error("[exam-grades] Error:", error);
+      logger.error({ err: error }, "Exam grades error");
       res.status(500).json({
         error: error.message || "Failed to process exam project grades",
       });
@@ -1467,8 +1758,37 @@ router.get(
   async (req: Request, res: Response) => {
     try {
       const { subjectId } = req.query;
+      const userRole = req.user?.role;
+      const userId = req.user?.userId;
 
-      const whereClause = subjectId ? { subject_id: subjectId as string } : {};
+      let subjectIdsFilter: string[] | undefined;
+      if (userRole === "TEACHER" && userId) {
+        const teacherClasses = await prisma.class.findMany({
+          where: { teacher_id: userId },
+          select: { id: true },
+        });
+        const classIds = teacherClasses.map((c) => c.id);
+        const classSubjects = await prisma.classSubject.findMany({
+          where: { class_id: { in: classIds } },
+          select: { subject_id: true },
+        });
+        subjectIdsFilter = [...new Set(classSubjects.map((cs) => cs.subject_id))];
+      }
+
+      const whereClause: Record<string, unknown> = {};
+      if (userRole === "TEACHER" && subjectIdsFilter) {
+        if (subjectIdsFilter.length === 0) {
+          whereClause.subject_id = "00000000-0000-0000-0000-000000000000";
+        } else if (subjectId) {
+          whereClause.subject_id = subjectIdsFilter.includes(subjectId as string)
+            ? subjectId
+            : "00000000-0000-0000-0000-000000000000";
+        } else {
+          whereClause.subject_id = { in: subjectIdsFilter };
+        }
+      } else if (subjectId) {
+        whereClause.subject_id = subjectId;
+      }
 
       const grades = await prisma.grade.findMany({
         where: {
@@ -1511,7 +1831,7 @@ router.get(
 
       res.json({ grades: transformedGrades });
     } catch (error: any) {
-      console.error("[exam-grades] Error fetching grades:", error);
+      logger.error({ err: error }, "Error fetching exam grades");
       res
         .status(500)
         .json({

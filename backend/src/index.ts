@@ -4,20 +4,29 @@ import dotenv from "dotenv";
 import uploadRoutes from "./routes/upload";
 import quizRoutes from "./routes/quiz";
 import authRoutes from "./routes/auth";
+import auditRoutes from "./routes/audit";
+import rubricTemplatesRoutes from "./routes/rubric-templates";
+import studentRoutes from "./routes/student";
 import { PrismaClient } from "@prisma/client";
 import { authenticateToken, checkRole } from "./auth/auth";
 import bcrypt from "bcryptjs";
+import { validateEnv } from "./lib/validate-env";
+import { logger } from "./lib/logger";
+import { apiRateLimiter } from "./lib/rate-limit";
+import { logAudit, getClientIp } from "./lib/audit";
 
 const prisma = new PrismaClient();
 
 // Load environment variables
 dotenv.config();
 
-// Ensure DATABASE_URL exists for Prisma
+// Ensure DATABASE_URL exists for Prisma (local dev fallback)
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL =
     "postgresql://postgres:postgres@localhost:5433/rubricheck?schema=public";
 }
+
+validateEnv();
 
 const app = express();
 const PORT = 8001;
@@ -33,11 +42,15 @@ app.use(
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use("/api", apiRateLimiter);
 
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api", uploadRoutes);
 app.use("/api/quiz", quizRoutes);
+app.use("/api/audit", auditRoutes);
+app.use("/api/rubric-templates", rubricTemplatesRoutes);
+app.use("/api", studentRoutes);
 
 // User management routes (Admin only)
 app.get(
@@ -60,7 +73,7 @@ app.get(
       });
       res.json({ users });
     } catch (error) {
-      console.error("Error fetching users:", error);
+      logger.error({ err: error }, "Error fetching users");
       res.status(500).json({ message: "Error fetching users" });
     }
   }
@@ -100,6 +113,15 @@ app.post(
         },
       });
 
+      await logAudit({
+        ...(req.user?.userId && { userId: req.user.userId }),
+        action: "CREATE",
+        resource: "user",
+        resourceId: user.id,
+        details: { email: user.email, role: user.role },
+        ...(getClientIp(req) && { ipAddress: getClientIp(req) }),
+      });
+
       res.status(201).json({
         message: "User created successfully",
         user: {
@@ -110,7 +132,7 @@ app.post(
         },
       });
     } catch (error) {
-      console.error("Error creating user:", error);
+      logger.error({ err: error }, "Error creating user");
       res.status(500).json({ message: "Error creating user" });
     }
   }
@@ -149,12 +171,21 @@ app.delete(
         where: { id: userId },
       });
 
+      await logAudit({
+        ...(req.user?.userId && { userId: req.user.userId }),
+        action: "DELETE",
+        resource: "user",
+        resourceId: userId,
+        details: { deletedEmail: user.email },
+        ...(getClientIp(req) && { ipAddress: getClientIp(req) }),
+      });
+
       res.json({
         message: "User deleted successfully",
         userId: userId,
       });
     } catch (error) {
-      console.error("Error deleting user:", error);
+      logger.error({ err: error }, "Error deleting user");
       res.status(500).json({ message: "Error deleting user" });
     }
   }
@@ -196,7 +227,7 @@ app.get(
       });
       res.json({ classes });
     } catch (error) {
-      console.error("Error fetching classes:", error);
+      logger.error({ err: error }, "Error fetching classes");
       res.status(500).json({ message: "Error fetching classes" });
     }
   }
@@ -227,7 +258,7 @@ app.get(
       });
       res.json({ teachers });
     } catch (error) {
-      console.error("Error fetching teachers:", error);
+      logger.error({ err: error }, "Error fetching teachers");
       res.status(500).json({ message: "Error fetching teachers" });
     }
   }
@@ -294,12 +325,21 @@ app.post(
         },
       });
 
+      await logAudit({
+        ...(req.user?.userId && { userId: req.user.userId }),
+        action: "CREATE",
+        resource: "class",
+        resourceId: newClass.id,
+        details: { name: newClass.name, code: newClass.code },
+        ...(getClientIp(req) && { ipAddress: getClientIp(req) }),
+      });
+
       res.status(201).json({
         message: "Class created successfully",
         class: newClass,
       });
     } catch (error) {
-      console.error("Error creating class:", error);
+      logger.error({ err: error }, "Error creating class");
       res.status(500).json({ message: "Error creating class" });
     }
   }
@@ -331,32 +371,58 @@ app.delete(
         where: { id: classId },
       });
 
+      await logAudit({
+        ...(req.user?.userId && { userId: req.user.userId }),
+        action: "DELETE",
+        resource: "class",
+        resourceId: classId,
+        details: { name: classExists.name },
+        ...(getClientIp(req) && { ipAddress: getClientIp(req) }),
+      });
+
       res.json({
         message: "Class deleted successfully",
         classId: classId,
       });
     } catch (error) {
-      console.error("Error deleting class:", error);
+      logger.error({ err: error }, "Error deleting class");
       res.status(500).json({ message: "Error deleting class" });
     }
   }
 );
 
-// Subject management routes
+// Subject management routes (ADMIN: all subjects, TEACHER: only subjects in their classes)
 app.get(
   "/api/subjects",
   authenticateToken,
   checkRole(["ADMIN", "TEACHER"]),
   async (req, res) => {
     try {
-      const subjects = await prisma.subject.findMany({
-        orderBy: {
-          name: "asc",
-        },
-      });
+      const userRole = req.user?.role;
+      const userId = req.user?.userId;
+
+      let subjects;
+      if (userRole === "TEACHER" && userId) {
+        const teacherClasses = await prisma.class.findMany({
+          where: { teacher_id: userId },
+          select: { id: true },
+        });
+        const classIds = teacherClasses.map((c) => c.id);
+        const classSubjects = await prisma.classSubject.findMany({
+          where: { class_id: { in: classIds } },
+          include: { subject: true },
+        });
+        subjects = [...new Map(classSubjects.map((cs) => [cs.subject.id, cs.subject])).values()].sort(
+          (a, b) => a.name.localeCompare(b.name)
+        );
+      } else {
+        subjects = await prisma.subject.findMany({
+          orderBy: { name: "asc" },
+        });
+      }
       res.json({ subjects });
     } catch (error) {
-      console.error("Error fetching subjects:", error);
+      logger.error({ err: error }, "Error fetching subjects");
       res.status(500).json({ message: "Error fetching subjects" });
     }
   }
@@ -406,12 +472,21 @@ app.post(
         },
       });
 
+      await logAudit({
+        ...(req.user?.userId && { userId: req.user.userId }),
+        action: "CREATE",
+        resource: "subject",
+        resourceId: newSubject.id,
+        details: { name: newSubject.name, code: newSubject.code },
+        ...(getClientIp(req) && { ipAddress: getClientIp(req) }),
+      });
+
       res.status(201).json({
         message: "Subject created successfully",
         subject: newSubject,
       });
     } catch (error) {
-      console.error("Error creating subject:", error);
+      logger.error({ err: error }, "Error creating subject");
       res.status(500).json({ message: "Error creating subject" });
     }
   }
@@ -443,12 +518,21 @@ app.delete(
         where: { id: subjectId },
       });
 
+      await logAudit({
+        ...(req.user?.userId && { userId: req.user.userId }),
+        action: "DELETE",
+        resource: "subject",
+        resourceId: subjectId,
+        details: { name: subject.name },
+        ...(getClientIp(req) && { ipAddress: getClientIp(req) }),
+      });
+
       res.json({
         message: "Subject deleted successfully",
         subjectId: subjectId,
       });
     } catch (error) {
-      console.error("Error deleting subject:", error);
+      logger.error({ err: error }, "Error deleting subject");
       res.status(500).json({ message: "Error deleting subject" });
     }
   }
@@ -462,9 +546,24 @@ app.get(
   async (req, res) => {
     try {
       const classId = req.params.classId;
+      const userRole = req.user?.role;
+      const userId = req.user?.userId;
 
       if (!classId) {
         return res.status(400).json({ message: "Class ID is required" });
+      }
+
+      const classData = await prisma.class.findUnique({
+        where: { id: classId },
+      });
+
+      if (!classData) {
+        return res.status(404).json({ message: "Class not found" });
+      }
+
+      // Teachers can only access subjects for classes they're assigned to
+      if (userRole === "TEACHER" && classData.teacher_id !== userId) {
+        return res.status(403).json({ message: "Access denied to this class" });
       }
 
       const classSubjects = await prisma.classSubject.findMany({
@@ -482,7 +581,7 @@ app.get(
       const subjects = classSubjects.map((cs) => cs.subject);
       res.json({ subjects });
     } catch (error) {
-      console.error("Error fetching class subjects:", error);
+      logger.error({ err: error }, "Error fetching class subjects");
       res.status(500).json({ message: "Error fetching class subjects" });
     }
   }
@@ -542,7 +641,7 @@ app.post(
         assignments: createdAssignments,
       });
     } catch (error) {
-      console.error("Error assigning subjects:", error);
+      logger.error({ err: error }, "Error assigning subjects");
       res.status(500).json({ message: "Error assigning subjects" });
     }
   }
@@ -582,7 +681,7 @@ app.delete(
         message: "Subject removed from class successfully",
       });
     } catch (error) {
-      console.error("Error removing subject from class:", error);
+      logger.error({ err: error }, "Error removing subject from class");
       res.status(500).json({ message: "Error removing subject from class" });
     }
   }
@@ -735,7 +834,7 @@ app.get(
         activityData,
       });
     } catch (error) {
-      console.error("Error fetching class performance:", error);
+      logger.error({ err: error }, "Error fetching class performance");
       res.status(500).json({ message: "Error fetching class performance" });
     }
   }
@@ -752,8 +851,11 @@ app.get("/api/health", (req, res) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`🚀 RubriCheck Backend running on port ${PORT}`);
-  console.log(`📁 Upload endpoint: http://localhost:${PORT}/api/submissions`);
-  console.log(`📊 Quiz endpoint: http://localhost:${PORT}/api/quiz`);
-  console.log(`🏥 Health check: http://localhost:${PORT}/api/health`);
+  logger.info(
+    { port: PORT },
+    `RubriCheck Backend running on port ${PORT}`
+  );
+  logger.info(`Upload: http://localhost:${PORT}/api/submissions`);
+  logger.info(`Quiz: http://localhost:${PORT}/api/quiz`);
+  logger.info(`Health: http://localhost:${PORT}/api/health`);
 });

@@ -2,22 +2,33 @@ import express, { Request, Response } from "express";
 import {
   register,
   login,
+  forgotPassword,
+  resetPassword,
   validateRegister,
   validateLogin,
+  validateForgotPassword,
+  validateResetPassword,
   authenticateToken,
   checkRole,
 } from "../auth/auth";
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { authRateLimiter } from "../lib/rate-limit";
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-// Register endpoint
-router.post("/register", validateRegister, register);
+// Register endpoint (rate limited)
+router.post("/register", authRateLimiter, validateRegister, register);
 
-// Login endpoint
-router.post("/login", validateLogin, login);
+// Login endpoint (rate limited)
+router.post("/login", authRateLimiter, validateLogin, login);
+
+// Forgot password (rate limited)
+router.post("/forgot-password", authRateLimiter, validateForgotPassword, forgotPassword);
+
+// Reset password
+router.post("/reset-password", authRateLimiter, validateResetPassword, resetPassword);
 
 // Validate token endpoint
 router.get("/validate", authenticateToken, (req, res) => {

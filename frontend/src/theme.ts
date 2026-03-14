@@ -1,93 +1,146 @@
 import { createTheme } from "@mui/material/styles";
 
+// RubriCheck Brand Colors - March 2026
+const colors = {
+  electricBlue: "#0066CC",
+  vibrantCyan: "#00B4D8",
+  deepNavy: "#1A1A2E",
+  successGreen: "#00D084",
+  warningOrange: "#FF9500",
+  alertRed: "#FF4444",
+  neutralGray: "#F0F0F0",
+};
+
 const theme = createTheme({
   palette: {
     primary: {
-      main: "#6366F1",
-      light: "#818CF8",
-      dark: "#4F46E5",
+      main: colors.electricBlue,
+      light: "#3399FF",
+      dark: "#004C99",
     },
     secondary: {
-      main: "#0EA5E9",
-      light: "#38BDF8",
-      dark: "#0284C7",
+      main: colors.vibrantCyan,
+      light: "#48CAE4",
+      dark: "#0096C7",
     },
     success: {
-      main: "#10B981",
+      main: colors.successGreen,
     },
     warning: {
-      main: "#F59E0B",
+      main: colors.warningOrange,
     },
     error: {
-      main: "#EF4444",
+      main: colors.alertRed,
+    },
+    text: {
+      primary: colors.deepNavy,
+      secondary: "rgba(26, 26, 46, 0.7)",
     },
     background: {
-      default: "#F8FAFC",
+      default: colors.neutralGray,
       paper: "#FFFFFF",
     },
   },
   typography: {
-    fontFamily: '"Inter", "Segoe UI", "Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: '"Inter", "Poppins", "Segoe UI", "Roboto", "Helvetica", "Arial", sans-serif',
     h1: {
       fontWeight: 700,
-      fontSize: "2rem",
+      fontSize: "2.5rem", // 40pt
+      color: colors.deepNavy,
     },
     h2: {
       fontWeight: 600,
-      fontSize: "1.5rem",
+      fontSize: "1.75rem", // 28pt
+      color: colors.deepNavy,
     },
     h3: {
       fontWeight: 600,
-      fontSize: "1.25rem",
+      fontSize: "1.25rem", // 20pt
+      color: colors.deepNavy,
     },
     h4: {
       fontWeight: 600,
-      fontSize: "1.125rem",
+      fontSize: "1.125rem", // 18pt
+      color: colors.deepNavy,
+    },
+    h5: {
+      fontWeight: 600,
+      fontSize: "1rem",
+      color: colors.deepNavy,
+    },
+    h6: {
+      fontWeight: 600,
+      fontSize: "0.875rem",
+      color: colors.deepNavy,
+    },
+    body1: {
+      fontSize: "1rem", // 16pt
+      fontWeight: 400,
+    },
+    body2: {
+      fontSize: "0.875rem", // 14pt
+      fontWeight: 400,
+    },
+    caption: {
+      fontSize: "0.8125rem", // 13pt
+      fontWeight: 400,
     },
   },
   shape: {
-    borderRadius: 12,
+    borderRadius: 8, // 8px base unit
   },
+  spacing: 8, // 8px base unit
   components: {
     MuiButton: {
       styleOverrides: {
         root: {
           textTransform: "none",
-          borderRadius: 10,
+          borderRadius: 8,
           fontWeight: 600,
+        },
+        contained: {
+          "&:hover": {
+            backgroundColor: "#004C99",
+          },
+        },
+        outlined: {
+          "&:hover": {
+            borderColor: colors.vibrantCyan,
+            backgroundColor: "rgba(0, 180, 216, 0.08)",
+          },
         },
       },
     },
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
-          boxShadow: "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+          borderRadius: 8,
+          boxShadow: "0 1px 3px 0 rgb(0 0 0 / 0.08)",
         },
       },
     },
     MuiPaper: {
       styleOverrides: {
         root: {
-          borderRadius: 12,
-          boxShadow: "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+          borderRadius: 8,
+          boxShadow: "0 1px 3px 0 rgb(0 0 0 / 0.08)",
         },
       },
     },
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          borderRadius: 10,
+          borderRadius: 8,
           backgroundColor: "background.paper",
           "& .MuiOutlinedInput-notchedOutline": {
             borderColor: "rgba(0, 0, 0, 0.12)",
           },
           "&:hover .MuiOutlinedInput-notchedOutline": {
-            borderColor: "rgba(0, 0, 0, 0.24)",
+            borderColor: colors.vibrantCyan,
           },
           "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-            borderColor: "primary.main",
-            borderWidth: 1.5,
+            borderColor: colors.electricBlue,
+            borderWidth: 2,
           },
         },
       },
@@ -104,7 +157,7 @@ const theme = createTheme({
       styleOverrides: {
         outlined: {
           "&.MuiInputLabel-shrink": {
-            color: "text.secondary",
+            color: colors.deepNavy,
           },
         },
       },
@@ -112,7 +165,7 @@ const theme = createTheme({
     MuiMenu: {
       styleOverrides: {
         paper: {
-          borderRadius: 10,
+          borderRadius: 8,
           boxShadow: "0 4px 20px rgba(0, 0, 0, 0.12)",
           marginTop: 4,
           maxHeight: 320,
@@ -129,9 +182,9 @@ const theme = createTheme({
           paddingTop: 10,
           paddingBottom: 10,
           "&.Mui-selected": {
-            backgroundColor: "rgba(99, 102, 241, 0.08)",
+            backgroundColor: "rgba(0, 102, 204, 0.08)",
             "&:hover": {
-              backgroundColor: "rgba(99, 102, 241, 0.12)",
+              backgroundColor: "rgba(0, 102, 204, 0.12)",
             },
           },
         },

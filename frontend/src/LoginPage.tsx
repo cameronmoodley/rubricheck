@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import {
   Box,
   Card,
@@ -14,7 +14,6 @@ import {
 import { Visibility, VisibilityOff } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
 import type { User } from "./context/AuthContextTypes";
-import brandImg from "./assets/logo.png";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -71,7 +70,7 @@ export default function LoginPage() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #A855F7 100%)",
+        background: "linear-gradient(135deg, #0066CC 0%, #00B4D8 100%)",
         p: 2,
       }}
     >
@@ -79,8 +78,8 @@ export default function LoginPage() {
         sx={{
           maxWidth: 440,
           width: "100%",
-          borderRadius: 3,
-          boxShadow: "0 25px 50px -12px rgb(0 0 0 / 0.25)",
+          borderRadius: 2,
+          boxShadow: "0 1px 3px 0 rgb(0 0 0 / 0.08)",
           overflow: "hidden",
         }}
       >
@@ -92,12 +91,6 @@ export default function LoginPage() {
             color: "white",
           }}
         >
-          <Box
-            component="img"
-            src={brandImg}
-            alt="RubriCheck"
-            sx={{ height: 48, mb: 2 }}
-          />
           <Typography variant="h5" fontWeight={700}>
             Welcome to RubriCheck
           </Typography>
@@ -164,6 +157,11 @@ export default function LoginPage() {
             >
               {loading ? "Signing in..." : "Sign in"}
             </Button>
+            <Typography variant="body2" sx={{ mt: 2, textAlign: "center" }}>
+              <Link to="/forgot-password" style={{ color: "inherit", textDecoration: "underline" }}>
+                Forgot password?
+              </Link>
+            </Typography>
           </Box>
         </CardContent>
       </Card>
