@@ -61,6 +61,26 @@ services:
       retries: 5
       start_period: 40s
 
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: demo-rubricheck-n8n
+    restart: always
+    env_file: [.env]
+    environment:
+      N8N_HOST: ${N8N_HOST:-n8n}
+      N8N_PORT: ${N8N_PORT:-5678}
+      N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:-}
+      N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE:-false}
+      WEBHOOK_URL: ${N8N_WEBHOOK_BASE_URL:-http://localhost:5678}
+    ports:
+      - "${N8N_HOST_PORT:-5683}:5678"
+    networks:
+      - rubricheck-network
+      - dokploy-network
+    volumes:
+      - n8n_data:/home/node/.n8n
+
   frontend:
     build:
       context: ../..
@@ -103,6 +123,7 @@ services:
 
 volumes:
   postgres_data:
+  n8n_data:
 
 networks:
   rubricheck-network:
