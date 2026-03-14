@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import * as cheerio from "cheerio";
 import { authenticateToken, checkRole, authenticateWebhook } from "../auth/auth";
 import { sanitizeErrorMessage } from "../lib/sanitize-error";
+import { getN8nRequestHeaders } from "../lib/n8n-client";
 
 const router = express.Router();
 const prisma = new PrismaClient();
@@ -780,6 +781,7 @@ router.post(
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            ...getN8nRequestHeaders(),
           },
           body: JSON.stringify(n8nPayload),
         });

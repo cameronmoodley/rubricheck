@@ -21,6 +21,8 @@ const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
 const N8N_EXAM_PROJECTS_WEBHOOK_URL =
   process.env.N8N_EXAM_PROJECTS_WEBHOOK_URL;
 
+import { getN8nRequestHeaders } from "../lib/n8n-client";
+
 // In-memory storage for file buffers (cleaned up when submission completes)
 // Key: submission_id, Value: { rubricBuffer, questionBuffer?, paperBuffers: Map<paperId, buffer> }
 const fileBufferCache = new Map<
@@ -141,7 +143,11 @@ async function triggerNextPaper(submissionId: string): Promise<boolean> {
 
   if (!webhookUrl) return false;
 
-  const n8nResponse = await fetch(webhookUrl, { method: "POST", body: formData });
+  const n8nResponse = await fetch(webhookUrl, {
+    method: "POST",
+    body: formData,
+    headers: getN8nRequestHeaders(),
+  });
   return n8nResponse.ok;
 }
 
@@ -405,6 +411,7 @@ router.post(
       const n8nResponse = await fetch(webhookUrl, {
         method: "POST",
         body: formData,
+        headers: getN8nRequestHeaders(),
       });
 
       if (!n8nResponse.ok) {
@@ -1474,6 +1481,7 @@ router.post(
       const n8nResponse = await fetch(N8N_EXAM_PROJECTS_WEBHOOK_URL, {
         method: "POST",
         body: formData,
+        headers: getN8nRequestHeaders(),
       });
 
       if (!n8nResponse.ok) {
@@ -1730,6 +1738,7 @@ router.post(
           const n8nResponse = await fetch(N8N_EXAM_PROJECTS_WEBHOOK_URL, {
             method: "POST",
             body: formData,
+            headers: getN8nRequestHeaders(),
           });
 
           if (n8nResponse.ok) {
