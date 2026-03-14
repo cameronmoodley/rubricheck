@@ -43,8 +43,15 @@ if (corsEnv) {
 logger.info({ corsOrigins }, "CORS allowed origins");
 app.use(
   cors({
-    origin: corsOrigins,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      const allowed = corsOrigins.some((a) => origin === a || origin === a.replace(/\/$/, ""));
+      cb(null, allowed ? origin : false);
+    },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Webhook-Secret", "n8nEncryptionKey"],
+    optionsSuccessStatus: 204,
   })
 );
 
