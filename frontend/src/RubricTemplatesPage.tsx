@@ -98,6 +98,9 @@ export default function RubricTemplatesPage() {
   );
   const templatePageCount = Math.max(1, Math.ceil(filteredTemplates.length / templatesPerPage));
 
+  const truncate = (text: string, maxLen: number) =>
+    !text ? "-" : text.length <= maxLen ? text : `${text.slice(0, maxLen).trim()}…`;
+
   return (
     <Box>
       <Typography variant="h4" fontWeight={700} gutterBottom>
@@ -152,7 +155,9 @@ export default function RubricTemplatesPage() {
                     {paginatedTemplates.map((t) => (
                       <TableRow key={t.id}>
                         <TableCell>{t.name}</TableCell>
-                        <TableCell>{t.description || "-"}</TableCell>
+                        <TableCell title={t.description || undefined} sx={{ maxWidth: 200 }}>
+                          {truncate(t.description || "", 80)}
+                        </TableCell>
                         <TableCell align="right">
                           <IconButton
                             size="small"

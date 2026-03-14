@@ -1214,13 +1214,31 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const files = req.files as { [fieldname: string]: Express.Multer.File[] };
-      const rubricFile = files.rubricFile?.[0];
+      let rubricFile = files.rubricFile?.[0];
       const questionFile = files.questionFile?.[0];
       const paperFiles = files.paperFiles || [];
-      const { subjectName, subjectCode, classId, subjectId: bodySubjectId } = req.body;
+      const { subjectName, subjectCode, classId, subjectId: bodySubjectId, templateId } = req.body;
+
+      if (!rubricFile && templateId) {
+        const template = await prisma.rubricTemplate.findUnique({
+          where: { id: templateId },
+        });
+        if (!template) {
+          return res.status(400).json({ error: "Invalid rubric template" });
+        }
+        const pdfBuffer = Buffer.from(getTemplatePdfBase64(), "base64");
+        rubricFile = {
+          fieldname: "rubricFile",
+          originalname: `rubric-${template.name}.pdf`,
+          encoding: "7bit",
+          mimetype: "application/pdf",
+          buffer: pdfBuffer,
+          size: pdfBuffer.length,
+        } as Express.Multer.File;
+      }
 
       if (!rubricFile) {
-        return res.status(400).json({ error: "Rubric file is required" });
+        return res.status(400).json({ error: "Rubric file or template is required" });
       }
 
       if (!questionFile) {

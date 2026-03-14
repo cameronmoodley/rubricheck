@@ -5,14 +5,26 @@ import {
   Card,
   CardContent,
   Alert,
-  Grid,
-  Collapse,
   Chip,
   CircularProgress,
   Button,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  TextField,
+  InputAdornment,
 } from "@mui/material";
 import { SearchableSelect } from "./components/SearchableSelect";
-import { ExpandMore, ExpandLess } from "@mui/icons-material";
+import { Visibility as ViewIcon, Search as SearchIcon } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
 import { apiUrl } from "./lib/api";
 
@@ -37,7 +49,8 @@ export default function ExamProjectResultsPage() {
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [detailGrade, setDetailGrade] = useState<ExamProjectGrade | null>(null);
+  const [studentSearch, setStudentSearch] = useState("");
 
   useEffect(() => {
     if (!token) return;
@@ -73,16 +86,17 @@ export default function ExamProjectResultsPage() {
     return "Needs Improvement";
   };
 
-  const formatCriteria = (s: string) => s.replace(/([A-Z])/g, " $1").trim();
-
-  const toggleExpanded = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const formatCriteria = (s: string) => {
+    const withSpaces = s.replace(/([A-Z])/g, " $1").trim();
+    return withSpaces
+      .split(" ")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(" ");
   };
+
+  const filteredGrades = grades.filter(
+    (g) => !studentSearch || g.studentName.toLowerCase().includes(studentSearch.toLowerCase())
+  );
 
   return (
     <Box>
@@ -117,67 +131,105 @@ export default function ExamProjectResultsPage() {
               No exam project results found. Upload and grade some exam projects to see results here.
             </Typography>
           ) : (
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {grades.map((grade) => (
-                <Card key={grade.id} variant="outlined">
-                  <CardContent>
-                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 2 }}>
-                      <Box>
-                        <Typography variant="h6" fontWeight={600}>{grade.studentName}</Typography>
-                        <Typography variant="body2" color="text.secondary">{grade.paperFilename} • {grade.subjectName}</Typography>
-                      </Box>
-                      <Box sx={{ textAlign: "right" }}>
-                        <Chip label={grade.totalScore} color={getScoreColor(grade.totalScore) as "success" | "warning" | "error"} sx={{ fontSize: "1.25rem", fontWeight: 700 }} />
-                        <Typography variant="caption" display="block">{getScoreLabel(grade.totalScore)}</Typography>
-                      </Box>
-                    </Box>
-
-                    <Box sx={{ mt: 2 }}>
-                      <Typography variant="subtitle2" fontWeight={600} gutterBottom>Criteria Breakdown</Typography>
-                      <Grid container spacing={1}>
-                        {Object.entries(grade.criteriaScores || {}).map(([criteria, score]) => (
-                          <Grid size={{ xs: 6, sm: 4, md: 2 }} key={criteria}>
-                            <Box sx={{ p: 1.5, bgcolor: "grey.100", borderRadius: 1, textAlign: "center" }}>
-                              <Typography variant="caption" color="text.secondary">{formatCriteria(criteria)}</Typography>
-                              <Typography><Chip size="small" label={score} color={getScoreColor(score) as "success" | "warning" | "error"} /></Typography>
-                            </Box>
-                          </Grid>
-                        ))}
-                      </Grid>
-                    </Box>
-
-                    <Button
-                      size="small"
-                      startIcon={expanded.has(grade.id) ? <ExpandLess /> : <ExpandMore />}
-                      onClick={() => toggleExpanded(grade.id)}
-                      sx={{ mt: 2 }}
-                    >
-                      {expanded.has(grade.id) ? "Hide detailed feedback" : "Show detailed feedback"}
-                    </Button>
-
-                    <Collapse in={expanded.has(grade.id)}>
-                      <Box sx={{ mt: 2 }}>
-                        <Typography variant="subtitle2" fontWeight={600} gutterBottom>Detailed Feedback</Typography>
-                        {Object.entries(grade.comprehensiveFeedback || {}).map(([criteria, data]) => (
-                          <Card key={criteria} variant="outlined" sx={{ mb: 1, bgcolor: "grey.50" }}>
-                            <CardContent>
-                              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                                <Typography fontWeight={600}>{formatCriteria(criteria)}</Typography>
-                                <Chip size="small" label={`${data.mark}/100`} color={getScoreColor(data.mark) as "success" | "warning" | "error"} />
-                              </Box>
-                              <Typography variant="body2">{data.feedback}</Typography>
-                            </CardContent>
-                          </Card>
-                        ))}
-                      </Box>
-                    </Collapse>
-                  </CardContent>
-                </Card>
-              ))}
-            </Box>
+            <>
+              <TextField
+                size="small"
+                placeholder="Search students..."
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ mb: 2, maxWidth: 320 }}
+              />
+              {filteredGrades.length === 0 ? (
+                <Typography color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
+                  No students match &quot;{studentSearch}&quot;
+                </Typography>
+              ) : (
+              <TableContainer component={Paper} variant="outlined">
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell><strong>Student</strong></TableCell>
+                    <TableCell><strong>Project</strong></TableCell>
+                    <TableCell><strong>Subject</strong></TableCell>
+                    <TableCell><strong>Score</strong></TableCell>
+                    <TableCell><strong>Rating</strong></TableCell>
+                    <TableCell align="right" width={100}><strong>Actions</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredGrades.map((grade) => (
+                    <TableRow key={grade.id} hover>
+                      <TableCell>{grade.studentName}</TableCell>
+                      <TableCell>{grade.paperFilename}</TableCell>
+                      <TableCell>{grade.subjectName}{grade.subjectCode ? ` (${grade.subjectCode})` : ""}</TableCell>
+                      <TableCell>
+                        <Chip size="small" label={`${grade.totalScore}%`} color={getScoreColor(grade.totalScore) as "success" | "warning" | "error"} />
+                      </TableCell>
+                      <TableCell>{getScoreLabel(grade.totalScore)}</TableCell>
+                      <TableCell align="right">
+                        <IconButton size="small" onClick={() => setDetailGrade(grade)} title="View details">
+                          <ViewIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+              )}
+              {studentSearch && filteredGrades.length > 0 && (
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                  {filteredGrades.length} of {grades.length} result{filteredGrades.length !== 1 ? "s" : ""}
+                </Typography>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={!!detailGrade} onClose={() => setDetailGrade(null)} maxWidth="md" fullWidth>
+        <DialogTitle>
+          {detailGrade?.studentName} – {detailGrade?.paperFilename}
+        </DialogTitle>
+        <DialogContent dividers>
+          {detailGrade && (
+            <Box>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
+                <Chip label={`${detailGrade.totalScore}%`} color={getScoreColor(detailGrade.totalScore) as "success" | "warning" | "error"} sx={{ fontSize: "1.1rem" }} />
+                <Typography variant="body2" color="text.secondary">{getScoreLabel(detailGrade.totalScore)}</Typography>
+              </Box>
+              <Typography variant="subtitle2" fontWeight={600} gutterBottom>Criteria Breakdown</Typography>
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 3 }}>
+                {Object.entries(detailGrade.criteriaScores || {}).map(([criteria, score]) => (
+                  <Chip key={criteria} size="small" label={`${formatCriteria(criteria)}: ${score}`} color={getScoreColor(score) as "success" | "warning" | "error"} />
+                ))}
+              </Box>
+              <Typography variant="subtitle2" fontWeight={600} gutterBottom>Detailed Feedback</Typography>
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {Object.entries(detailGrade.comprehensiveFeedback || {}).map(([criteria, data]) => (
+                  <Box key={criteria} sx={{ p: 2, bgcolor: "grey.50", borderRadius: 1 }}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Typography fontWeight={600}>{formatCriteria(criteria)}</Typography>
+                      <Chip size="small" label={`${data.mark}/100`} color={getScoreColor(data.mark) as "success" | "warning" | "error"} />
+                    </Box>
+                    <Typography variant="body2">{data.feedback}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDetailGrade(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

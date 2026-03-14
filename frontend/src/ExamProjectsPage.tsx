@@ -30,6 +30,8 @@ export default function ExamProjectsPage() {
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [loadingSubjects, setLoadingSubjects] = useState(false);
   const [rubricFile, setRubricFile] = useState<File | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [templates, setTemplates] = useState<{ id: string; name: string; description?: string }[]>([]);
   const [questionFile, setQuestionFile] = useState<File | null>(null);
   const [paperFiles, setPaperFiles] = useState<File[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -47,6 +49,19 @@ export default function ExamProjectsPage() {
   }, [token]);
 
   useEffect(() => {
+    if (!token || !selectedSubjectId) {
+      setTemplates([]);
+      return;
+    }
+    fetch(apiUrl(`/api/rubric-templates?subjectId=${selectedSubjectId}`), {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => r.json())
+      .then((d) => setTemplates(d.templates || []))
+      .catch(() => setTemplates([]));
+  }, [token, selectedSubjectId]);
+
+  useEffect(() => {
     if (!selectedClassId || !token) {
       setSubjects([]);
       setSelectedSubjectId("");
@@ -61,10 +76,13 @@ export default function ExamProjectsPage() {
   }, [selectedClassId, token]);
 
   const canSubmit = useMemo(() => {
-    return !!selectedClassId && !!selectedSubjectId && !!rubricFile && !!questionFile && paperFiles.length > 0;
-  }, [selectedClassId, selectedSubjectId, rubricFile, questionFile, paperFiles]);
+    return !!selectedClassId && !!selectedSubjectId && (!!rubricFile || !!selectedTemplateId) && !!questionFile && paperFiles.length > 0;
+  }, [selectedClassId, selectedSubjectId, rubricFile, selectedTemplateId, questionFile, paperFiles]);
 
-  const handleRubricChange = (e: React.ChangeEvent<HTMLInputElement>) => setRubricFile(e.target.files?.[0] || null);
+  const handleRubricChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setRubricFile(e.target.files?.[0] || null);
+    if (e.target.files?.[0]) setSelectedTemplateId("");
+  };
   const handleQuestionChange = (e: React.ChangeEvent<HTMLInputElement>) => setQuestionFile(e.target.files?.[0] || null);
   const handlePapersChange = (e: React.ChangeEvent<HTMLInputElement>) => setPaperFiles(e.target.files ? Array.from(e.target.files) : []);
 
@@ -77,6 +95,7 @@ export default function ExamProjectsPage() {
     try {
       const form = new FormData();
       if (rubricFile) form.append("rubricFile", rubricFile);
+      if (selectedTemplateId && !rubricFile) form.append("templateId", selectedTemplateId);
       if (questionFile) form.append("questionFile", questionFile);
       paperFiles.forEach((f) => form.append("paperFiles", f));
       form.append("classId", selectedClassId);
@@ -108,6 +127,7 @@ export default function ExamProjectsPage() {
       setResult(`Success! ${count} exam project(s) submitted. Submission ID: ${data.submissionId}`);
       setUploadProgress(100);
       setRubricFile(null);
+      setSelectedTemplateId("");
       setQuestionFile(null);
       setPaperFiles([]);
       setSelectedSubjectId("");
@@ -183,9 +203,27 @@ export default function ExamProjectsPage() {
                 <>
                   <Grid size={{ xs: 12 }}>
                     <FormControl fullWidth required>
-                      <InputLabel shrink>Rubric File (PDF)</InputLabel>
-                      <Input id="rubric-upload" type="file" inputProps={{ accept: "application/pdf" }} onChange={handleRubricChange} />
+                      <InputLabel shrink>Rubric File (PDF) or Template</InputLabel>
+                      <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                        <Input id="rubric-upload" type="file" inputProps={{ accept: "application/pdf" }} onChange={handleRubricChange} />
+                        <SearchableSelect
+                          label="Or use a template"
+                          value={selectedTemplateId}
+                          onChange={(v) => {
+                            setSelectedTemplateId(v);
+                            if (v) setRubricFile(null);
+                          }}
+                          options={templates.map((t) => ({ id: t.id, label: t.name }))}
+                          emptyLabel="No template"
+                          width={320}
+                        />
+                      </Box>
                       {rubricFile && <FormHelperText sx={{ color: "success.main" }}>✓ {rubricFile.name}</FormHelperText>}
+                      {selectedTemplateId && !rubricFile && (
+                        <FormHelperText sx={{ color: "success.main" }}>
+                          ✓ Using template: {templates.find((t) => t.id === selectedTemplateId)?.name}
+                        </FormHelperText>
+                      )}
                     </FormControl>
                   </Grid>
                   <Grid size={{ xs: 12 }}>
