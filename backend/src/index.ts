@@ -434,7 +434,7 @@ app.post(
   checkRole(["ADMIN"]),
   async (req, res) => {
     try {
-      const { name, code } = req.body;
+      const { name, code, classIds } = req.body;
 
       if (!name) {
         return res.status(400).json({ message: "Subject name is required" });
@@ -471,6 +471,15 @@ app.post(
           code: code || null,
         },
       });
+
+      if (Array.isArray(classIds)) {
+        const validIds = [...new Set(classIds.filter((id) => typeof id === "string" && id.trim()))];
+        if (validIds.length > 0) {
+          await prisma.classSubject.createMany({
+            data: validIds.map((classId) => ({ class_id: classId, subject_id: newSubject.id })),
+          });
+        }
+      }
 
       await logAudit({
         ...(req.user?.userId && { userId: req.user.userId }),
@@ -534,6 +543,126 @@ app.delete(
     } catch (error) {
       logger.error({ err: error }, "Error deleting subject");
       res.status(500).json({ message: "Error deleting subject" });
+    }
+  }
+);
+
+// GET /api/subjects/:id - Get single subject (Admin only)
+app.get(
+  "/api/subjects/:id",
+  authenticateToken,
+  checkRole(["ADMIN"]),
+  async (req, res) => {
+    try {
+      const subjectId = req.params.id;
+      if (!subjectId) return res.status(400).json({ message: "Subject ID is required" });
+
+      const subject = await prisma.subject.findUnique({
+        where: { id: subjectId },
+      });
+      if (!subject) return res.status(404).json({ message: "Subject not found" });
+
+      res.json({ subject });
+    } catch (error) {
+      logger.error({ err: error }, "Error fetching subject");
+      res.status(500).json({ message: "Error fetching subject" });
+    }
+  }
+);
+
+// GET /api/subjects/:id/classes - Get classes this subject is assigned to (Admin only)
+app.get(
+  "/api/subjects/:id/classes",
+  authenticateToken,
+  checkRole(["ADMIN"]),
+  async (req, res) => {
+    try {
+      const subjectId = req.params.id;
+      if (!subjectId) return res.status(400).json({ message: "Subject ID is required" });
+
+      const classSubjects = await prisma.classSubject.findMany({
+        where: { subject_id: subjectId },
+        include: { class: true },
+      });
+      const classIds = classSubjects.map((cs) => cs.class.id);
+      res.json({ classIds });
+    } catch (error) {
+      logger.error({ err: error }, "Error fetching subject classes");
+      res.status(500).json({ message: "Error fetching subject classes" });
+    }
+  }
+);
+
+// PUT /api/subjects/:id - Update subject (Admin only)
+app.put(
+  "/api/subjects/:id",
+  authenticateToken,
+  checkRole(["ADMIN"]),
+  async (req, res) => {
+    try {
+      const subjectId = req.params.id;
+      const { name, code, classIds } = req.body;
+
+      if (!subjectId) return res.status(400).json({ message: "Subject ID is required" });
+
+      const subject = await prisma.subject.findUnique({
+        where: { id: subjectId },
+      });
+      if (!subject) return res.status(404).json({ message: "Subject not found" });
+
+      if (name !== undefined) {
+        if (!name || !String(name).trim()) {
+          return res.status(400).json({ message: "Subject name is required" });
+        }
+        const existingName = await prisma.subject.findFirst({
+          where: { name: String(name).trim(), NOT: { id: subjectId } },
+        });
+        if (existingName) {
+          return res.status(400).json({ message: "Subject with this name already exists" });
+        }
+      }
+
+      if (code !== undefined && code !== null && code !== "") {
+        const existingCode = await prisma.subject.findFirst({
+          where: { code: String(code).trim(), NOT: { id: subjectId } },
+        });
+        if (existingCode) {
+          return res.status(400).json({ message: "Subject with this code already exists" });
+        }
+      }
+
+      const updateData: { name?: string; code?: string | null } = {};
+      if (name !== undefined) updateData.name = String(name).trim();
+      if (code !== undefined) updateData.code = code === "" || code === null ? null : String(code).trim();
+
+      const updated = await prisma.subject.update({
+        where: { id: subjectId },
+        data: updateData,
+      });
+
+      if (Array.isArray(classIds)) {
+        await prisma.classSubject.deleteMany({ where: { subject_id: subjectId } });
+        const validIds = [...new Set(classIds.filter((id) => typeof id === "string" && id.trim()))];
+        if (validIds.length > 0) {
+          await prisma.classSubject.createMany({
+            data: validIds.map((classId) => ({ class_id: classId, subject_id: subjectId })),
+          });
+        }
+      }
+
+      await logAudit({
+        ...(req.user?.userId && { userId: req.user.userId }),
+        action: "UPDATE",
+        resource: "subject",
+        resourceId: subjectId,
+        details: { name: updated.name, code: updated.code },
+        ...(getClientIp(req) && { ipAddress: getClientIp(req) }),
+      });
+
+      res.json({ message: "Subject updated successfully", subject: updated });
+    } catch (error) {
+      logger.error({ err: error }, "Error updating subject");
+      res.status(500).json({ message: "Error updating subject" });
     }
   }
 );

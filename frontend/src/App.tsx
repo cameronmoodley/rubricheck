@@ -15,7 +15,9 @@ import UploadPage from "./UploadPage";
 import UsersPage from "./UsersPage";
 import ClassesPage from "./ClassesPage";
 import SubjectsPage from "./SubjectsPage";
+import SubjectFormPage from "./SubjectFormPage";
 import RubricTemplatesPage from "./RubricTemplatesPage";
+import RubricTemplateFormPage from "./RubricTemplateFormPage";
 import AuditLogPage from "./AuditLogPage";
 import StudentGradesPage from "./StudentGradesPage";
 import ResultsPage from "./ResultsPage";
@@ -32,17 +34,7 @@ const App = () => {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
 
-        {/* Protected routes */}
-        <Route
-          path="/"
-          element={
-            <PrivateRoute>
-              <Layout>
-                <DashboardPage />
-              </Layout>
-            </PrivateRoute>
-          }
-        />
+        {/* Protected routes - specific paths first, "/" last to avoid greedy matching */}
         <Route
           path="/upload"
           element={
@@ -144,11 +136,51 @@ const App = () => {
           }
         />
         <Route
+          path="/subjects/new"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <SubjectFormPage />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/subjects/:id/edit"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <SubjectFormPage />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
           path="/rubric-templates"
           element={
             <PrivateRoute>
               <Layout>
                 <RubricTemplatesPage />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/rubric-templates/new"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <RubricTemplateFormPage />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/rubric-templates/:id/edit"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <RubricTemplateFormPage />
               </Layout>
             </PrivateRoute>
           }
@@ -190,6 +222,16 @@ const App = () => {
             <PrivateRoute>
               <Layout>
                 <ProfilePage />
+              </Layout>
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/"
+          element={
+            <PrivateRoute>
+              <Layout>
+                <DashboardPage />
               </Layout>
             </PrivateRoute>
           }

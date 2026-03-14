@@ -154,25 +154,49 @@ export default function ClassesPage() {
         <Card sx={{ mb: 3 }}>
           <CardContent>
             <Typography variant="h6" fontWeight={600} gutterBottom>Create New Class</Typography>
-            <Box component="form" onSubmit={handleSubmit}>
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, alignItems: "flex-start" }}>
-                <TextField label="Class Name" required value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} placeholder="e.g., Grade 10A" sx={{ minWidth: 200 }} />
-                <TextField label="Class Code" value={formData.code} onChange={(e) => setFormData({ ...formData, code: e.target.value })} placeholder="e.g., CS101-F24" sx={{ minWidth: 150 }} />
+            <Box component="form" onSubmit={handleSubmit} sx={{ maxWidth: 640 }}>
+              <Box sx={{ display: "flex", gap: 2, mb: 2 }}>
+                <TextField
+                  label="Class Name"
+                  required
+                  fullWidth
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g., Grade 10A"
+                />
+                <TextField
+                  label="Class Code"
+                  fullWidth
+                  value={formData.code}
+                  onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+                  placeholder="e.g., CS101-F24"
+                />
+              </Box>
+              <Box sx={{ mb: 2, width: "100%" }}>
                 <SearchableSelect
                   label="Assigned Teacher"
                   value={formData.teacher_id}
                   onChange={(v) => setFormData({ ...formData, teacher_id: v })}
                   options={teachers.map((t) => ({ id: t.id, label: `${t.name} (${t.role})` }))}
                   emptyLabel="Select a teacher (optional)"
-                  width={320}
+                  width="100%"
                   disabled={loadingTeachers}
                   loading={loadingTeachers}
                 />
-                <TextField label="Description" multiline rows={2} value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Optional" sx={{ minWidth: 200 }} />
-                <Button type="submit" variant="contained" disabled={submitting || !formData.name.trim()}>
-                  {submitting ? "Creating..." : "Create Class"}
-                </Button>
               </Box>
+              <TextField
+                label="Description"
+                multiline
+                rows={4}
+                fullWidth
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Optional description of the class or course section"
+                sx={{ mb: 2 }}
+              />
+              <Button type="submit" variant="contained" disabled={submitting || !formData.name.trim()}>
+                {submitting ? "Creating..." : "Create Class"}
+              </Button>
             </Box>
           </CardContent>
         </Card>

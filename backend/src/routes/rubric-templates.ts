@@ -240,6 +240,135 @@ router.post(
   }
 );
 
+// GET /api/rubric-templates/:id/subjects - Get subjects this template is assigned to
+router.get(
+  "/:id/subjects",
+  authenticateToken,
+  checkRole(["TEACHER", "ADMIN"]),
+  async (req: Request, res: Response) => {
+    try {
+      const templateId = req.params.id;
+      if (!templateId) {
+        return res.status(400).json({ error: "Template ID required" });
+      }
+      const assignments = await prisma.subjectRubricTemplate.findMany({
+        where: { template_id: templateId },
+        include: { subject: true },
+      });
+      return res.json({
+        subjectIds: assignments.map((a) => a.subject_id),
+        subjects: assignments.map((a) => ({ id: a.subject.id, name: a.subject.name, code: a.subject.code })),
+      });
+    } catch (err: unknown) {
+      console.error("template subjects error:", err);
+      res.status(500).json({ error: "Failed to get template subjects" });
+    }
+  }
+);
+
+// GET /api/rubric-templates/:id - Get a single template (for editing)
+router.get(
+  "/:id",
+  authenticateToken,
+  checkRole(["TEACHER", "ADMIN"]),
+  async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
+      if (!id) {
+        return res.status(400).json({ error: "Template ID required" });
+      }
+      const template = await prisma.rubricTemplate.findUnique({
+        where: { id },
+      });
+      if (!template) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+      return res.json({
+        template: {
+          id: template.id,
+          name: template.name,
+          description: template.description,
+          criteria: template.criteria,
+        },
+      });
+    } catch (err: unknown) {
+      console.error("rubric-templates get error:", err);
+      res.status(500).json({ error: "Failed to get template" });
+    }
+  }
+);
+
+// PUT /api/rubric-templates/:id - Update a template (Teachers and Admin)
+router.put(
+  "/:id",
+  authenticateToken,
+  checkRole(["TEACHER", "ADMIN"]),
+  async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
+      if (!id) {
+        return res.status(400).json({ error: "Template ID required" });
+      }
+      const { name, description, criteria } = req.body as {
+        name?: string;
+        description?: string;
+        criteria?: Record<string, { maxScore: number; description: string }>;
+      };
+      if (!name || typeof name !== "string" || !name.trim()) {
+        return res.status(400).json({ error: "Template name is required" });
+      }
+      const criteriaData = criteria && typeof criteria === "object" ? criteria : {};
+      const template = await prisma.rubricTemplate.update({
+        where: { id },
+        data: {
+          name: name.trim(),
+          description: description && typeof description === "string" ? description.trim() : null,
+          criteria: criteriaData,
+        },
+      });
+      return res.json({
+        template: {
+          id: template.id,
+          name: template.name,
+          description: template.description,
+          criteria: template.criteria,
+        },
+      });
+    } catch (err: unknown) {
+      console.error("rubric-templates update error:", err);
+      res.status(500).json({ error: "Failed to update template" });
+    }
+  }
+);
+
+// DELETE /api/rubric-templates/:id - Delete a template (Teachers and Admin)
+router.delete(
+  "/:id",
+  authenticateToken,
+  checkRole(["TEACHER", "ADMIN"]),
+  async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id;
+      if (!id) {
+        return res.status(400).json({ error: "Template ID required" });
+      }
+      const template = await prisma.rubricTemplate.findUnique({
+        where: { id },
+      });
+      if (!template) {
+        return res.status(404).json({ error: "Template not found" });
+      }
+      await prisma.rubricTemplate.delete({
+        where: { id },
+      });
+      return res.json({ success: true, message: `Template "${template.name}" deleted` });
+    } catch (err: unknown) {
+      console.error("rubric-templates delete error:", err);
+      res.status(500).json({ error: "Failed to delete template" });
+    }
+  }
+);
+
 // GET /api/rubric-templates/:id/file - Get template PDF for download/use
 router.get(
   "/:id/file",

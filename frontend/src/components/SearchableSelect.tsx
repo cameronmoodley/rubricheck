@@ -16,7 +16,7 @@ type SearchableSelectProps = {
   onChange: (value: string) => void;
   options: SearchableSelectOption[];
   emptyLabel?: string;
-  width?: number;
+  width?: number | string;
   disabled?: boolean;
   loading?: boolean;
   required?: boolean;
