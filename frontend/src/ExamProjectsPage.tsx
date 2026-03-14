@@ -12,9 +12,11 @@ import {
   Input,
   FormHelperText,
   LinearProgress,
+  Paper,
+  Stack,
 } from "@mui/material";
 import { SearchableSelect } from "./components/SearchableSelect";
-import { CloudUpload } from "@mui/icons-material";
+import { CloudUpload, Description, Quiz, Folder } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
 import { apiUrl } from "./lib/api";
 
@@ -77,6 +79,16 @@ export default function ExamProjectsPage() {
 
   const canSubmit = useMemo(() => {
     return !!selectedClassId && !!selectedSubjectId && (!!rubricFile || !!selectedTemplateId) && !!questionFile && paperFiles.length > 0;
+  }, [selectedClassId, selectedSubjectId, rubricFile, selectedTemplateId, questionFile, paperFiles]);
+
+  const missingFields = useMemo(() => {
+    const m: string[] = [];
+    if (!selectedClassId) m.push("class");
+    if (!selectedSubjectId) m.push("subject");
+    if (!rubricFile && !selectedTemplateId) m.push("rubric or template");
+    if (!questionFile) m.push("question file (PDF)");
+    if (paperFiles.length === 0) m.push("student project(s)");
+    return m;
   }, [selectedClassId, selectedSubjectId, rubricFile, selectedTemplateId, questionFile, paperFiles]);
 
   const handleRubricChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -160,54 +172,68 @@ export default function ExamProjectsPage() {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
       {result && <Alert severity="success" sx={{ mb: 2 }}>{result}</Alert>}
 
-      <Card sx={{ mb: 3 }}>
-        <CardContent>
-          <Typography variant="h6" fontWeight={600} gutterBottom>Upload Files</Typography>
+      <Card sx={{ mb: 3, boxShadow: 2 }}>
+        <CardContent sx={{ p: 3 }}>
+          <Typography variant="h6" fontWeight={600} sx={{ mb: 3 }}>Upload Files</Typography>
           <Box component="form" onSubmit={onSubmit}>
-            <Grid container spacing={3}>
-              <Grid size={{ xs: 12 }}>
-                <SearchableSelect
-                  label="Select Class"
-                  value={selectedClassId}
-                  onChange={setSelectedClassId}
-                  options={classes.map((c) => ({
-                    id: c.id,
-                    label: `${c.name}${c.code ? ` (${c.code})` : ""}${c.teacher ? ` - ${c.teacher.name}` : ""}`,
-                  }))}
-                  emptyLabel="Choose a class..."
-                  width={320}
-                  disabled={loadingClasses}
-                  loading={loadingClasses}
-                  required
-                />
-              </Grid>
-              {selectedClassId && (
-                <Grid size={{ xs: 12 }}>
-                  <SearchableSelect
-                    label="Select Subject"
-                    value={selectedSubjectId}
-                    onChange={setSelectedSubjectId}
-                    options={subjects.map((s) => ({
-                      id: s.id,
-                      label: `${s.name}${s.code ? ` (${s.code})` : ""}`,
-                    }))}
-                    emptyLabel="Choose a subject..."
-                    width={320}
-                    disabled={loadingSubjects || subjects.length === 0}
-                    loading={loadingSubjects}
-                    required
-                  />
+            <Stack spacing={3}>
+              <Box>
+                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                  <Folder fontSize="small" /> 1. Class & Subject
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, sm: 6 }}>
+                    <SearchableSelect
+                      label="Select Class"
+                      value={selectedClassId}
+                      onChange={setSelectedClassId}
+                      options={classes.map((c) => ({
+                        id: c.id,
+                        label: `${c.name}${c.code ? ` (${c.code})` : ""}${c.teacher ? ` - ${c.teacher.name}` : ""}`,
+                      }))}
+                      emptyLabel="Choose a class..."
+                      width="100%"
+                      disabled={loadingClasses}
+                      loading={loadingClasses}
+                      required
+                    />
+                  </Grid>
+                  {selectedClassId && (
+                    <Grid size={{ xs: 12, sm: 6 }}>
+                      <SearchableSelect
+                        label="Select Subject"
+                        value={selectedSubjectId}
+                        onChange={setSelectedSubjectId}
+                        options={subjects.map((s) => ({
+                          id: s.id,
+                          label: `${s.name}${s.code ? ` (${s.code})` : ""}`,
+                        }))}
+                        emptyLabel="Choose a subject..."
+                        width="100%"
+                        disabled={loadingSubjects || subjects.length === 0}
+                        loading={loadingSubjects}
+                        required
+                      />
+                    </Grid>
+                  )}
                 </Grid>
-              )}
+              </Box>
+
               {selectedSubjectId && (
                 <>
-                  <Grid size={{ xs: 12 }}>
-                    <FormControl fullWidth required>
-                      <InputLabel shrink>Rubric File (PDF) or Template</InputLabel>
-                      <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                        <Input id="rubric-upload" type="file" inputProps={{ accept: "application/pdf" }} onChange={handleRubricChange} />
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                      <Description fontSize="small" /> 2. Rubric or Template
+                    </Typography>
+                    <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}>
+                      <Stack spacing={2}>
+                        <FormControl fullWidth>
+                          <InputLabel shrink>Rubric File (PDF)</InputLabel>
+                          <Input id="rubric-upload" type="file" inputProps={{ accept: "application/pdf" }} onChange={handleRubricChange} sx={{ mt: 1 }} />
+                        </FormControl>
+                        <Typography variant="body2" color="text.secondary">— or —</Typography>
                         <SearchableSelect
-                          label="Or use a template"
+                          label="Use a template"
                           value={selectedTemplateId}
                           onChange={(v) => {
                             setSelectedTemplateId(v);
@@ -215,34 +241,44 @@ export default function ExamProjectsPage() {
                           }}
                           options={templates.map((t) => ({ id: t.id, label: t.name }))}
                           emptyLabel="No template"
-                          width={320}
+                          width="100%"
                         />
-                      </Box>
-                      {rubricFile && <FormHelperText sx={{ color: "success.main" }}>✓ {rubricFile.name}</FormHelperText>}
-                      {selectedTemplateId && !rubricFile && (
-                        <FormHelperText sx={{ color: "success.main" }}>
-                          ✓ Using template: {templates.find((t) => t.id === selectedTemplateId)?.name}
-                        </FormHelperText>
-                      )}
-                    </FormControl>
-                  </Grid>
-                  <Grid size={{ xs: 12 }}>
-                    <FormControl fullWidth required>
-                      <InputLabel shrink>Question File (PDF)</InputLabel>
-                      <Input id="question-upload" type="file" inputProps={{ accept: "application/pdf" }} onChange={handleQuestionChange} />
-                      {questionFile && <FormHelperText sx={{ color: "success.main" }}>✓ {questionFile.name}</FormHelperText>}
-                    </FormControl>
-                  </Grid>
-                  <Grid size={{ xs: 12 }}>
-                    <FormControl fullWidth required>
-                      <InputLabel shrink>Student Exam Projects (PDF, up to 25)</InputLabel>
-                      <Input id="papers-upload" type="file" inputProps={{ accept: "application/pdf", multiple: true }} onChange={handlePapersChange} />
-                      {paperFiles.length > 0 && <FormHelperText sx={{ color: "success.main" }}>✓ {paperFiles.length} file(s) selected</FormHelperText>}
-                    </FormControl>
-                  </Grid>
+                        {rubricFile && <FormHelperText sx={{ color: "success.main" }}>✓ {rubricFile.name}</FormHelperText>}
+                        {selectedTemplateId && !rubricFile && (
+                          <FormHelperText sx={{ color: "success.main" }}>
+                            ✓ Using template: {templates.find((t) => t.id === selectedTemplateId)?.name}
+                          </FormHelperText>
+                        )}
+                      </Stack>
+                    </Paper>
+                  </Box>
+
+                  <Box>
+                    <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 1, display: "flex", alignItems: "center", gap: 1 }}>
+                      <Quiz fontSize="small" /> 3. Question File & Student Projects
+                    </Typography>
+                    <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}>
+                      <Stack spacing={2}>
+                        <FormControl fullWidth required>
+                          <InputLabel shrink>Question Paper (PDF)</InputLabel>
+                          <Input id="question-upload" type="file" inputProps={{ accept: "application/pdf" }} onChange={handleQuestionChange} sx={{ mt: 1 }} />
+                          {questionFile && <FormHelperText sx={{ color: "success.main" }}>✓ {questionFile.name}</FormHelperText>}
+                          {!questionFile && selectedSubjectId && (
+                            <FormHelperText color="error">Required: upload the exam question paper</FormHelperText>
+                          )}
+                        </FormControl>
+                        <FormControl fullWidth required>
+                          <InputLabel shrink>Student Exam Projects (PDF, up to 25)</InputLabel>
+                          <Input id="papers-upload" type="file" inputProps={{ accept: "application/pdf", multiple: true }} onChange={handlePapersChange} sx={{ mt: 1 }} />
+                          {paperFiles.length > 0 && <FormHelperText sx={{ color: "success.main" }}>✓ {paperFiles.length} file(s) selected</FormHelperText>}
+                        </FormControl>
+                      </Stack>
+                    </Paper>
+                  </Box>
                 </>
               )}
-              <Grid size={{ xs: 12 }}>
+
+              <Box sx={{ pt: 2 }}>
                 {submitting && uploadProgress > 0 && uploadProgress < 100 && (
                   <Box sx={{ width: "100%", mb: 2 }}>
                     <LinearProgress variant="determinate" value={uploadProgress} sx={{ height: 8, borderRadius: 1 }} />
@@ -251,25 +287,38 @@ export default function ExamProjectsPage() {
                     </Typography>
                   </Box>
                 )}
-                <Button type="submit" variant="contained" size="large" disabled={!canSubmit || submitting} startIcon={<CloudUpload />} fullWidth>
+                <Button
+                  type="submit"
+                  variant="contained"
+                  size="large"
+                  disabled={!canSubmit || submitting}
+                  startIcon={<CloudUpload />}
+                  fullWidth
+                  sx={{ py: 1.5, fontSize: "1rem" }}
+                >
                   {submitting ? (uploadProgress > 0 ? "Uploading..." : "Processing...") : "Submit for Grading"}
                 </Button>
-              </Grid>
-            </Grid>
+                {!canSubmit && missingFields.length > 0 && (
+                  <FormHelperText sx={{ mt: 1, textAlign: "center" }}>
+                    Missing: {missingFields.join(", ")}
+                  </FormHelperText>
+                )}
+              </Box>
+            </Stack>
           </Box>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
-          <Typography variant="h6" fontWeight={600} gutterBottom>How it works</Typography>
+      <Card sx={{ boxShadow: 2 }}>
+        <CardContent sx={{ p: 3, bgcolor: "grey.50" }}>
+          <Typography variant="h6" fontWeight={600} sx={{ mb: 2 }}>How it works</Typography>
           <Grid container spacing={3}>
             {steps.map((s) => (
               <Grid size={{ xs: 12, sm: 6, md: 3 }} key={s.num}>
                 <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start" }}>
-                  <Box sx={{ width: 40, height: 40, borderRadius: 2, bgcolor: "primary.main", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{s.num}</Box>
+                  <Box sx={{ width: 36, height: 36, borderRadius: "50%", bgcolor: "primary.main", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, flexShrink: 0 }}>{s.num}</Box>
                   <Box>
-                    <Typography fontWeight={600}>{s.title}</Typography>
+                    <Typography fontWeight={600} variant="subtitle1">{s.title}</Typography>
                     <Typography variant="body2" color="text.secondary">{s.desc}</Typography>
                   </Box>
                 </Box>
