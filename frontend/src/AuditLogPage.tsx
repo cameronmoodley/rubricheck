@@ -19,6 +19,7 @@ import {
   MenuItem,
 } from "@mui/material";
 import { useAuth } from "./hooks/useAuth";
+import { apiUrl } from "./lib/api";
 
 type AuditEntry = {
   id: string;
@@ -49,7 +50,7 @@ export default function AuditLogPage() {
     params.set("limit", String(limit));
     params.set("offset", String((page - 1) * limit));
     if (actionFilter) params.set("action", actionFilter);
-    fetch(`/api/audit?${params.toString()}`, {
+    fetch(apiUrl(`/api/audit?${params.toString()}`), {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())

@@ -18,6 +18,7 @@ import {
 import { BarChart, Assessment } from "@mui/icons-material";
 import { useParams, useNavigate } from "react-router-dom";
 import { HIDE_MOODLE } from "./config";
+import { apiUrl } from "./lib/api";
 
 type MoodleCourse = { id: number; fullname: string; shortname: string };
 type MoodleQuiz = {
@@ -138,7 +139,7 @@ export default function QuizDetailPage() {
     if (!selectedQuiz || !quizId) return;
     try {
       setLoadingAction(true);
-      const res = await fetch("/api/quiz/grade", {
+      const res = await fetch(apiUrl("/api/quiz/grade"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ quizId: quizId, createdBy: "frontend-user" }),
@@ -157,7 +158,7 @@ export default function QuizDetailPage() {
     if (!quizId) return;
     try {
       setLoadingAction(true);
-      const res = await fetch(`/api/quiz/complete-data/${quizId}`);
+      const res = await fetch(apiUrl(`/api/quiz/complete-data/${quizId}`));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to fetch");
       setQuizAttempts(data.attempts || []);

@@ -32,9 +32,12 @@ const app = express();
 const PORT = 8001;
 
 // Enable CORS for all routes
+const corsOrigins = ["http://localhost:5173", "http://localhost:3000"];
+const extraOrigin = process.env.CORS_ORIGIN;
+if (extraOrigin) corsOrigins.push(extraOrigin);
 app.use(
   cors({
-    origin: ["http://localhost:5173", "http://localhost:3000"],
+    origin: corsOrigins,
     credentials: true,
   })
 );

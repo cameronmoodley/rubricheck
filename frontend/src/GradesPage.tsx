@@ -13,6 +13,7 @@ import {
 } from "@mui/material";
 import { SearchableSelect } from "./components/SearchableSelect";
 import { ExpandMore, Person, Description } from "@mui/icons-material";
+import { apiUrl } from "./lib/api";
 
 type GradeRow = {
   id: string;
@@ -39,7 +40,7 @@ export default function GradesPage() {
       try {
         setLoading(true);
         const params = subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : "";
-        const res = await fetch(`/api/grades${params}`);
+        const res = await fetch(apiUrl(`/api/grades${params}`));
         if (!res.ok) throw new Error(`Failed to load grades (${res.status})`);
         const data = (await res.json()) as { grades: GradeRow[] };
         setRows(data.grades);
@@ -52,7 +53,7 @@ export default function GradesPage() {
   }, [subjectId]);
 
   useEffect(() => {
-    fetch("/api/subjects")
+    fetch(apiUrl("/api/subjects"))
       .then((r) => r.json())
       .then((d) => setSubjects((d.subjects || []).map((s: { id: string; name: string }) => ({ id: s.id, name: s.name }))))
       .catch(() => {});

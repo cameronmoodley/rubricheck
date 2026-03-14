@@ -14,6 +14,7 @@ import {
 import { SearchableSelect } from "./components/SearchableSelect";
 import { ExpandMore, ExpandLess } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
+import { apiUrl } from "./lib/api";
 
 type ExamProjectGrade = {
   id: string;
@@ -40,7 +41,7 @@ export default function ExamProjectResultsPage() {
 
   useEffect(() => {
     if (!token) return;
-    fetch("/api/subjects", { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl("/api/subjects"), { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => setSubjects(d.subjects || []))
       .catch(() => {});
@@ -51,7 +52,7 @@ export default function ExamProjectResultsPage() {
     setLoading(true);
     setError(null);
     const url = selectedSubjectId ? `/api/exam-projects/grades?subjectId=${selectedSubjectId}` : "/api/exam-projects/grades";
-    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl(url), { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => setGrades(d.grades || []))
       .catch((e) => setError(e.message || "Unknown error"))

@@ -18,6 +18,7 @@ import {
 } from "@mui/material";
 import { ExpandMore } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
+import { apiUrl } from "./lib/api";
 
 type Grade = {
   id: string;
@@ -39,7 +40,7 @@ export default function StudentGradesPage() {
 
   useEffect(() => {
     if (!token) return;
-    fetch("/api/my-grades", { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl("/api/my-grades"), { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => setGrades(d.grades || []))
       .catch(() => setError("Failed to load grades"))

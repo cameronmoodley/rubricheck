@@ -48,6 +48,7 @@ import {
 import { useAuth } from "./hooks/useAuth";
 import { useNavigate } from "react-router-dom";
 import { HIDE_MOODLE } from "./config";
+import { apiUrl } from "./lib/api";
 import { SearchableSelect } from "./components/SearchableSelect";
 
 type Class = { id: string; name: string; code: string | null; teacher?: { id: string; name: string; email: string } | null };
@@ -160,7 +161,7 @@ export default function DashboardPage() {
       if (!token) return;
       try {
         setLoadingStats(true);
-        const res = await fetch("/api/dashboard/stats", {
+        const res = await fetch(apiUrl("/api/dashboard/stats"), {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -178,7 +179,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!token || (user?.role !== "ADMIN" && user?.role !== "TEACHER")) return;
-    fetch("/api/classes", { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl("/api/classes"), { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => setClasses(d.classes || []))
       .catch(() => setPerfError("Failed to fetch classes"))
@@ -192,7 +193,7 @@ export default function DashboardPage() {
     }
     setLoadingPerformance(true);
     setPerfError("");
-    fetch(`/api/classes/${selectedClassId}/performance`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl(`/api/classes/${selectedClassId}/performance`), { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => setPerformanceData(d))
       .catch((e) => setPerfError(e.message || "Failed to fetch performance"))

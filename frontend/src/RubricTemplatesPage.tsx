@@ -25,6 +25,7 @@ import {
 import { Add as AddIcon, Delete as DeleteIcon, Search as SearchIcon, Edit as EditIcon } from "@mui/icons-material";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
+import { apiUrl } from "./lib/api";
 
 type RubricTemplate = { id: string; name: string; description?: string; criteria?: Record<string, { maxScore: number; description: string }> };
 
@@ -48,7 +49,7 @@ export default function RubricTemplatesPage() {
     if (!token) return;
     try {
       setLoading(true);
-      const res = await fetch("/api/rubric-templates/all", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(apiUrl("/api/rubric-templates/all"), { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       setTemplates(data.templates || []);
     } catch {
@@ -67,7 +68,7 @@ export default function RubricTemplatesPage() {
     setDeleting(true);
     setError("");
     try {
-      const res = await fetch(`/api/rubric-templates/${templateToDelete.id}`, {
+      const res = await fetch(apiUrl(`/api/rubric-templates/${templateToDelete.id}`), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

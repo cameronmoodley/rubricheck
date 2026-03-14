@@ -26,6 +26,7 @@ import {
 } from "@mui/material";
 import { useAuth } from "./hooks/useAuth";
 import { useNavigate } from "react-router-dom";
+import { apiUrl } from "./lib/api";
 
 type User = {
   id: string;
@@ -59,7 +60,7 @@ export default function UsersPage() {
     if (!token) return;
     try {
       setLoading(true);
-      const res = await fetch("/api/users", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(apiUrl("/api/users"), { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) {
         const data = await res.json();
         setUsers(data.users || []);
@@ -83,7 +84,7 @@ export default function UsersPage() {
     }
     try {
       setLoading(true);
-      const res = await fetch("/api/users/create", {
+      const res = await fetch(apiUrl("/api/users/create"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(formData),
@@ -109,7 +110,7 @@ export default function UsersPage() {
   const confirmDelete = async () => {
     if (!userToDelete) return;
     try {
-      const res = await fetch(`/api/users/${userToDelete.id}`, {
+      const res = await fetch(apiUrl(`/api/users/${userToDelete.id}`), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

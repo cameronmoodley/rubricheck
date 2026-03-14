@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthContext } from "./AuthContextTypes";
 import type { User } from "./AuthContextTypes";
+import { apiUrl } from "../lib/api";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -13,7 +14,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const validateToken = async (token: string) => {
       try {
-        const response = await fetch("/api/auth/validate", {
+        const response = await fetch(apiUrl("/api/auth/validate"), {
           headers: {
             Authorization: `Bearer ${token}`,
           },

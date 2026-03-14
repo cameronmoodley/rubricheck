@@ -16,6 +16,7 @@ import {
   Paper,
 } from "@mui/material";
 import { MenuBook } from "@mui/icons-material";
+import { apiUrl } from "./lib/api";
 
 type Subject = { id: string; name: string; code?: string };
 
@@ -26,7 +27,7 @@ export default function CoursesPage() {
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
-    const res = await fetch("/api/subjects");
+    const res = await fetch(apiUrl("/api/subjects"));
     if (!res.ok) return;
     const data = await res.json();
     setSubjects(data.subjects || []);
@@ -40,7 +41,7 @@ export default function CoursesPage() {
     e.preventDefault();
     setError(null);
     try {
-      const res = await fetch("/api/subjects", {
+      const res = await fetch(apiUrl("/api/subjects"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, code: code || undefined }),

@@ -13,6 +13,7 @@ import {
 } from "@mui/material";
 import { ArrowBack as BackIcon } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
+import { apiUrl } from "./lib/api";
 
 export default function RubricTemplateFormPage() {
   const { id } = useParams<{ id: string }>();
@@ -33,9 +34,9 @@ export default function RubricTemplateFormPage() {
     const load = async () => {
       try {
         const [subjRes, tmplRes, assignRes] = await Promise.all([
-          fetch("/api/subjects", { headers: { Authorization: `Bearer ${token}` } }),
-          id ? fetch(`/api/rubric-templates/${id}`, { headers: { Authorization: `Bearer ${token}` } }) : null,
-          id ? fetch(`/api/rubric-templates/${id}/subjects`, { headers: { Authorization: `Bearer ${token}` } }) : null,
+          fetch(apiUrl("/api/subjects"), { headers: { Authorization: `Bearer ${token}` } }),
+          id ? fetch(apiUrl(`/api/rubric-templates/${id}`), { headers: { Authorization: `Bearer ${token}` } }) : null,
+          id ? fetch(apiUrl(`/api/rubric-templates/${id}/subjects`), { headers: { Authorization: `Bearer ${token}` } }) : null,
         ]);
         const subjData = await subjRes.json();
         setSubjects(subjData.subjects || []);
@@ -77,7 +78,7 @@ export default function RubricTemplateFormPage() {
       };
       const url = isEdit ? `/api/rubric-templates/${id}` : "/api/rubric-templates";
       const method = isEdit ? "PUT" : "POST";
-      const res = await fetch(url, {
+      const res = await fetch(apiUrl(url), {
         method,
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -90,7 +91,7 @@ export default function RubricTemplateFormPage() {
       const templateId = data.template?.id || id;
       if (templateId) {
         for (const subject of subjects) {
-          const assignRes = await fetch(`/api/rubric-templates/subjects/${subject.id}/templates`, {
+          const assignRes = await fetch(apiUrl(`/api/rubric-templates/subjects/${subject.id}/templates`), {
             headers: { Authorization: `Bearer ${token}` },
           });
           const assignData = await assignRes.json();
@@ -98,13 +99,13 @@ export default function RubricTemplateFormPage() {
           const shouldHave = selectedSubjectIds.includes(subject.id);
           const hasIt = currentIds.includes(templateId);
           if (shouldHave && !hasIt) {
-            await fetch(`/api/rubric-templates/subjects/${subject.id}/templates`, {
+            await fetch(apiUrl(`/api/rubric-templates/subjects/${subject.id}/templates`), {
               method: "PUT",
               headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
               body: JSON.stringify({ templateIds: [...currentIds, templateId] }),
             });
           } else if (!shouldHave && hasIt) {
-            await fetch(`/api/rubric-templates/subjects/${subject.id}/templates`, {
+            await fetch(apiUrl(`/api/rubric-templates/subjects/${subject.id}/templates`), {
               method: "PUT",
               headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
               body: JSON.stringify({ templateIds: currentIds.filter((x) => x !== templateId) }),

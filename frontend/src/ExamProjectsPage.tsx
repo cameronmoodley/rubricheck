@@ -16,6 +16,7 @@ import {
 import { SearchableSelect } from "./components/SearchableSelect";
 import { CloudUpload } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
+import { apiUrl } from "./lib/api";
 
 type Class = { id: string; name: string; code?: string; teacher?: { name: string } };
 type Subject = { id: string; name: string; code?: string };
@@ -38,7 +39,7 @@ export default function ExamProjectsPage() {
 
   useEffect(() => {
     if (!token) return;
-    fetch("/api/classes", { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl("/api/classes"), { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => setClasses(d.classes || []))
       .catch(() => setError("Failed to load classes"))
@@ -52,7 +53,7 @@ export default function ExamProjectsPage() {
       return;
     }
     setLoadingSubjects(true);
-    fetch(`/api/classes/${selectedClassId}/subjects`, { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl(`/api/classes/${selectedClassId}/subjects`), { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => setSubjects(d.subjects || []))
       .catch(() => setError("Failed to load subjects"))
@@ -83,7 +84,7 @@ export default function ExamProjectsPage() {
 
       const res = await new Promise<Response>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", "/api/exam-projects");
+        xhr.open("POST", apiUrl("/api/exam-projects"));
         xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         xhr.upload.addEventListener("progress", (ev) => {
           if (ev.lengthComputable) setUploadProgress(Math.round((ev.loaded / ev.total) * 100));

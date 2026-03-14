@@ -24,6 +24,7 @@ import {
 import { Search } from "@mui/icons-material";
 import { SearchableSelect } from "./components/SearchableSelect";
 import { useAuth } from "./hooks/useAuth";
+import { apiUrl } from "./lib/api";
 
 type Teacher = { id: string; name: string; email: string; role: string };
 type Class = {
@@ -56,7 +57,7 @@ export default function ClassesPage() {
     if (!token) return;
     try {
       setLoading(true);
-      const res = await fetch("/api/classes", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(apiUrl("/api/classes"), { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) setClasses((await res.json()).classes || []);
       else setError("Failed to fetch classes");
     } catch {
@@ -70,7 +71,7 @@ export default function ClassesPage() {
     if (!token) return;
     try {
       setLoadingTeachers(true);
-      const res = await fetch("/api/teachers", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(apiUrl("/api/teachers"), { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) setTeachers((await res.json()).teachers || []);
     } catch {
       console.error("Error fetching teachers");
@@ -94,7 +95,7 @@ export default function ClassesPage() {
       setSubmitting(true);
       setSuccess("");
       setError("");
-      const res = await fetch("/api/classes/create", {
+      const res = await fetch(apiUrl("/api/classes/create"), {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(formData),
@@ -115,7 +116,7 @@ export default function ClassesPage() {
   const confirmDelete = async () => {
     if (!token || !classToDelete) return;
     try {
-      const res = await fetch(`/api/classes/${classToDelete.id}`, {
+      const res = await fetch(apiUrl(`/api/classes/${classToDelete.id}`), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

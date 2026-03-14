@@ -25,6 +25,7 @@ import {
 import { Add as AddIcon, Delete as DeleteIcon, Search as SearchIcon, Edit as EditIcon } from "@mui/icons-material";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
+import { apiUrl } from "./lib/api";
 
 type Subject = { id: string; name: string; code: string | null; created_at: string };
 
@@ -45,7 +46,7 @@ export default function SubjectsPage() {
     if (!token) return;
     try {
       setLoading(true);
-      const res = await fetch("/api/subjects", { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(apiUrl("/api/subjects"), { headers: { Authorization: `Bearer ${token}` } });
       if (res.ok) setAllSubjects((await res.json()).subjects || []);
     } catch {
       setError("Failed to load subjects");
@@ -61,7 +62,7 @@ export default function SubjectsPage() {
   const confirmDelete = async () => {
     if (!token || !subjectToDelete) return;
     try {
-      const res = await fetch(`/api/subjects/${subjectToDelete.id}`, {
+      const res = await fetch(apiUrl(`/api/subjects/${subjectToDelete.id}`), {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

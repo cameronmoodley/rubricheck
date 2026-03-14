@@ -35,6 +35,7 @@ services:
     env_file: [.env]
     environment:
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME}?schema=public
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
     ports:
       - "${BACKEND_HOST_PORT}:${BACKEND_CONTAINER_PORT}"
     networks:

@@ -16,6 +16,7 @@ import {
 import { SearchableSelect } from "./components/SearchableSelect";
 import { CloudUpload } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
+import { apiUrl } from "./lib/api";
 
 type Class = { id: string; name: string; code?: string; teacher?: { name: string } };
 type Subject = { id: string; name: string; code?: string };
@@ -44,7 +45,7 @@ export default function UploadPage() {
       setTemplates([]);
       return;
     }
-    fetch(`/api/rubric-templates?subjectId=${selectedSubjectId}`, {
+    fetch(apiUrl(`/api/rubric-templates?subjectId=${selectedSubjectId}`), {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
@@ -54,7 +55,7 @@ export default function UploadPage() {
 
   useEffect(() => {
     if (!token) return;
-    fetch("/api/classes", { headers: { Authorization: `Bearer ${token}` } })
+    fetch(apiUrl("/api/classes"), { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
       .then((d) => setClasses(d.classes || []))
       .catch(() => setError("Failed to load classes"))
@@ -68,7 +69,7 @@ export default function UploadPage() {
       return;
     }
     setLoadingSubjects(true);
-    fetch(`/api/classes/${selectedClassId}/subjects`, {
+    fetch(apiUrl(`/api/classes/${selectedClassId}/subjects`), {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((r) => r.json())
@@ -105,7 +106,7 @@ export default function UploadPage() {
 
       const res = await new Promise<Response>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
-        xhr.open("POST", "/api/submissions");
+        xhr.open("POST", apiUrl("/api/submissions"));
         xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
         xhr.upload.addEventListener("progress", (ev) => {
@@ -152,7 +153,7 @@ export default function UploadPage() {
     setRetrying(true);
     setError(null);
     try {
-      const res = await fetch(`/api/submissions/${lastSubmissionId}/retry`, {
+      const res = await fetch(apiUrl(`/api/submissions/${lastSubmissionId}/retry`), {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });

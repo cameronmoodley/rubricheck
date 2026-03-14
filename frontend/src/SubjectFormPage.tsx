@@ -13,6 +13,7 @@ import {
 } from "@mui/material";
 import { ArrowBack as BackIcon } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
+import { apiUrl } from "./lib/api";
 
 type ClassOption = { id: string; name: string; code?: string | null };
 
@@ -41,9 +42,9 @@ export default function SubjectFormPage() {
     const load = async () => {
       try {
         const [classesRes, subjectRes, assignRes] = await Promise.all([
-          fetch("/api/classes", { headers: { Authorization: `Bearer ${token}` } }),
-          id ? fetch(`/api/subjects/${id}`, { headers: { Authorization: `Bearer ${token}` } }) : null,
-          id ? fetch(`/api/subjects/${id}/classes`, { headers: { Authorization: `Bearer ${token}` } }) : null,
+          fetch(apiUrl("/api/classes"), { headers: { Authorization: `Bearer ${token}` } }),
+          id ? fetch(apiUrl(`/api/subjects/${id}`), { headers: { Authorization: `Bearer ${token}` } }) : null,
+          id ? fetch(apiUrl(`/api/subjects/${id}/classes`), { headers: { Authorization: `Bearer ${token}` } }) : null,
         ]);
         const classesData = await classesRes.json();
         setClasses(classesData.classes || []);
@@ -80,7 +81,7 @@ export default function SubjectFormPage() {
     setError("");
     try {
       if (isEdit) {
-        const res = await fetch(`/api/subjects/${id}`, {
+        const res = await fetch(apiUrl(`/api/subjects/${id}`), {
           method: "PUT",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -95,7 +96,7 @@ export default function SubjectFormPage() {
           return;
         }
       } else {
-        const res = await fetch("/api/subjects/create", {
+        const res = await fetch(apiUrl("/api/subjects/create"), {
           method: "POST",
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({
