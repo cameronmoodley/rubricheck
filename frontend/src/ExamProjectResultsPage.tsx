@@ -24,7 +24,7 @@ import {
   InputAdornment,
 } from "@mui/material";
 import { SearchableSelect } from "./components/SearchableSelect";
-import { Visibility as ViewIcon, Search as SearchIcon } from "@mui/icons-material";
+import { Visibility as ViewIcon, Search as SearchIcon, ContentCopy as CopyIcon, Edit as EditIcon } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
 import { apiUrl } from "./lib/api";
 
@@ -51,6 +51,12 @@ export default function ExamProjectResultsPage() {
   const [error, setError] = useState<string | null>(null);
   const [detailGrade, setDetailGrade] = useState<ExamProjectGrade | null>(null);
   const [studentSearch, setStudentSearch] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedFeedback, setEditedFeedback] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -92,6 +98,97 @@ export default function ExamProjectResultsPage() {
       .split(" ")
       .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
       .join(" ");
+  };
+
+  const buildPlainTextFeedback = (grade: ExamProjectGrade, feedbackOverrides?: Record<string, string>) => {
+    const lines: string[] = [`${grade.studentName} – ${grade.paperFilename}`, ""];
+    for (const [criteria, data] of Object.entries(grade.comprehensiveFeedback || {})) {
+      const feedback = feedbackOverrides?.[criteria] ?? (data as { feedback: string }).feedback;
+      lines.push(formatCriteria(criteria));
+      lines.push(feedback);
+      lines.push("");
+    }
+    return lines.join("\n").trim();
+  };
+
+  const handleCopyPlainText = async () => {
+    if (!detailGrade) return;
+    const text = buildPlainTextFeedback(detailGrade, isEditing ? editedFeedback : undefined);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch {
+      // fallback for older browsers
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    }
+  };
+
+  const handleStartEdit = () => {
+    if (!detailGrade) return;
+    const initial: Record<string, string> = {};
+    for (const [criteria, data] of Object.entries(detailGrade.comprehensiveFeedback || {})) {
+      initial[criteria] = (data as { feedback: string }).feedback;
+    }
+    setEditedFeedback(initial);
+    setIsEditing(true);
+  };
+
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+    setEditedFeedback({});
+  };
+
+  const handleSaveFeedback = async () => {
+    if (!detailGrade || !token) return;
+    setSaving(true);
+    try {
+      const comprehensiveFeedback: Record<string, { feedback: string; mark: number }> = {};
+      for (const [criteria, data] of Object.entries(detailGrade.comprehensiveFeedback || {})) {
+        comprehensiveFeedback[criteria] = {
+          feedback: editedFeedback[criteria] ?? (data as { feedback: string }).feedback,
+          mark: (data as { mark: number }).mark,
+        };
+      }
+      const res = await fetch(apiUrl(`/api/grades/${detailGrade.id}`), {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ comprehensiveFeedback }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to save");
+      }
+      setDetailGrade((prev) =>
+        prev
+          ? {
+              ...prev,
+              comprehensiveFeedback: Object.fromEntries(
+                Object.entries(comprehensiveFeedback).map(([k, v]) => [k, { feedback: v.feedback, mark: v.mark }])
+              ),
+            }
+          : null
+      );
+      setIsEditing(false);
+      setEditedFeedback({});
+      setSaveSuccess(true);
+      setSaveError(null);
+      setTimeout(() => setSaveSuccess(false), 3000);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const filteredGrades = grades.filter(
@@ -194,13 +291,25 @@ export default function ExamProjectResultsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!detailGrade} onClose={() => setDetailGrade(null)} maxWidth="md" fullWidth>
+      <Dialog
+        open={!!detailGrade}
+        onClose={() => {
+          setDetailGrade(null);
+          setIsEditing(false);
+          setEditedFeedback({});
+          setSaveError(null);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle>
           {detailGrade?.studentName} – {detailGrade?.paperFilename}
         </DialogTitle>
         <DialogContent dividers>
           {detailGrade && (
             <Box>
+              {saveSuccess && <Alert severity="success" sx={{ mb: 2 }}>Feedback saved successfully.</Alert>}
+              {saveError && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setSaveError(null)}>{saveError}</Alert>}
               <Box sx={{ display: "flex", alignItems: "center", gap: 2, mb: 3 }}>
                 <Chip label={`${detailGrade.totalScore}%`} color={getScoreColor(detailGrade.totalScore) as "success" | "warning" | "error"} sx={{ fontSize: "1.1rem" }} />
                 <Typography variant="body2" color="text.secondary">{getScoreLabel(detailGrade.totalScore)}</Typography>
@@ -211,15 +320,34 @@ export default function ExamProjectResultsPage() {
                   <Chip key={criteria} size="small" label={`${formatCriteria(criteria)}: ${score}`} color={getScoreColor(score) as "success" | "warning" | "error"} />
                 ))}
               </Box>
-              <Typography variant="subtitle2" fontWeight={600} gutterBottom>Detailed Feedback</Typography>
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                <Typography variant="subtitle2" fontWeight={600}>Detailed Feedback</Typography>
+                <Button size="small" startIcon={<CopyIcon />} onClick={handleCopyPlainText}>
+                  {copySuccess ? "Copied!" : "Copy as plain text"}
+                </Button>
+              </Box>
               <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {Object.entries(detailGrade.comprehensiveFeedback || {}).map(([criteria, data]) => (
                   <Box key={criteria} sx={{ p: 2, bgcolor: "grey.50", borderRadius: 1 }}>
                     <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
                       <Typography fontWeight={600}>{formatCriteria(criteria)}</Typography>
-                      <Chip size="small" label={`${data.mark}/100`} color={getScoreColor(data.mark) as "success" | "warning" | "error"} />
+                      {!isEditing && (
+                        <Chip size="small" label={`${data.mark}/100`} color={getScoreColor(data.mark) as "success" | "warning" | "error"} />
+                      )}
                     </Box>
-                    <Typography variant="body2">{data.feedback}</Typography>
+                    {isEditing ? (
+                      <TextField
+                        fullWidth
+                        multiline
+                        minRows={3}
+                        value={editedFeedback[criteria] ?? data.feedback}
+                        onChange={(e) => setEditedFeedback((prev) => ({ ...prev, [criteria]: e.target.value }))}
+                        variant="outlined"
+                        size="small"
+                      />
+                    ) : (
+                      <Typography variant="body2">{data.feedback}</Typography>
+                    )}
                   </Box>
                 ))}
               </Box>
@@ -227,7 +355,22 @@ export default function ExamProjectResultsPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDetailGrade(null)}>Close</Button>
+          {!isEditing ? (
+            <>
+              <Button startIcon={<EditIcon />} onClick={handleStartEdit}>
+                Edit Feedback
+              </Button>
+              <Button variant="contained" onClick={() => setDetailGrade(null)}>Close</Button>
+            </>
+          ) : (
+            <>
+              <Button variant="contained" onClick={handleSaveFeedback} disabled={saving}>
+                {saving ? "Saving..." : "Save"}
+              </Button>
+              <Button onClick={handleCancelEdit} disabled={saving}>Cancel</Button>
+              <Button variant="contained" onClick={() => setDetailGrade(null)} disabled={saving}>Close</Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
     </Box>

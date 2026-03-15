@@ -980,7 +980,7 @@ router.put(
   async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { goodComments, badComments } = req.body;
+      const { goodComments, badComments, comprehensiveFeedback } = req.body;
 
       if (!id) {
         return res.status(400).json({ error: "Grade ID is required" });
@@ -995,32 +995,48 @@ router.put(
         return res.status(404).json({ error: "Grade not found" });
       }
 
-      // Update the criteria_scores with new comments
-      const updatedCriteriaScores = {
-        ...(grade.criteria_scores as any),
-        goodComments: goodComments || "",
-        badComments: badComments || "",
-      };
+      const updateData: { criteria_scores?: object; comments?: string } = {};
 
-      // Update the grade
+      // Exam project grades: update comprehensiveFeedback
+      if (comprehensiveFeedback && typeof comprehensiveFeedback === "object") {
+        updateData.comments = JSON.stringify(comprehensiveFeedback);
+      }
+
+      // Paper grades: update goodComments/badComments
+      if (goodComments !== undefined || badComments !== undefined) {
+        const updatedCriteriaScores = {
+          ...(grade.criteria_scores as any),
+          goodComments: goodComments !== undefined ? goodComments : (grade.criteria_scores as any)?.goodComments || "",
+          badComments: badComments !== undefined ? badComments : (grade.criteria_scores as any)?.badComments || "",
+        };
+        updateData.criteria_scores = updatedCriteriaScores;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({ error: "No feedback data provided" });
+      }
+
       const updatedGrade = await prisma.grade.update({
         where: { id },
-        data: {
-          criteria_scores: updatedCriteriaScores,
-        },
+        data: updateData,
       });
 
       logger.info({ gradeId: id }, "Updated feedback for grade");
 
-      res.json({
+      const result: Record<string, unknown> = {
         success: true,
         message: "Feedback updated successfully",
-        grade: {
-          id: updatedGrade.id,
-          goodComments: updatedCriteriaScores.goodComments,
-          badComments: updatedCriteriaScores.badComments,
-        },
-      });
+        grade: { id: updatedGrade.id },
+      };
+      if (updateData.criteria_scores) {
+        (result.grade as any).goodComments = (updateData.criteria_scores as any).goodComments;
+        (result.grade as any).badComments = (updateData.criteria_scores as any).badComments;
+      }
+      if (updateData.comments) {
+        (result.grade as any).comprehensiveFeedback = JSON.parse(updateData.comments);
+      }
+
+      res.json(result);
     } catch (error: any) {
       logger.error({ err: error }, "Error updating feedback");
       res
