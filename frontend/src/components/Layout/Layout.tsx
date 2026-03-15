@@ -47,7 +47,7 @@ const navItems = [
   { path: "/results", label: "Results", icon: <ResultsIcon />, roles: ["ADMIN", "TEACHER"] },
   { path: "/classes", label: "Classes", icon: <ClassIcon />, roles: ["ADMIN"] },
   { path: "/subjects", label: "Subjects", icon: <SubjectIcon />, roles: ["ADMIN"] },
-  { path: "/rubric-templates", label: "Rubric Templates", icon: <ExamResultsIcon />, roles: ["TEACHER", "ADMIN"] },
+  { path: "/rubric-templates", label: "Rubric Templates", icon: <ExamResultsIcon />, roles: ["ADMIN"] },
   ...(!HIDE_MOODLE ? [{ path: "/quiz", label: "Quiz", icon: <QuizIcon />, roles: ["ADMIN"] }] : []),
   { path: "/users", label: "Users", icon: <PeopleIcon />, roles: ["ADMIN"] },
   { path: "/audit", label: "Audit Log", icon: <AuditIcon />, roles: ["ADMIN"] },
