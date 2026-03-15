@@ -364,6 +364,96 @@ app.post(
   }
 );
 
+app.patch(
+  "/api/classes/:id",
+  authenticateToken,
+  checkRole(["ADMIN"]),
+  async (req, res) => {
+    try {
+      const classId = req.params.id;
+      const { name, code, description, teacher_id } = req.body;
+
+      if (!classId) {
+        return res.status(400).json({ message: "Class ID is required" });
+      }
+
+      const existingClass = await prisma.class.findUnique({
+        where: { id: classId },
+      });
+
+      if (!existingClass) {
+        return res.status(404).json({ message: "Class not found" });
+      }
+
+      if (!name || !name.trim()) {
+        return res.status(400).json({ message: "Class name is required" });
+      }
+
+      // Check if class with same code exists (excluding current class)
+      if (code) {
+        const duplicateCode = await prisma.class.findFirst({
+          where: {
+            code,
+            id: { not: classId },
+          },
+        });
+        if (duplicateCode) {
+          return res.status(400).json({ message: "Class with this code already exists" });
+        }
+      }
+
+      // Validate teacher_id if provided
+      if (teacher_id) {
+        const teacher = await prisma.user.findUnique({
+          where: { id: teacher_id },
+        });
+        if (!teacher) {
+          return res.status(400).json({ message: "Teacher not found" });
+        }
+        if (teacher.role !== "TEACHER" && teacher.role !== "ADMIN") {
+          return res.status(400).json({ message: "User must be a teacher or admin" });
+        }
+      }
+
+      const updatedClass = await prisma.class.update({
+        where: { id: classId },
+        data: {
+          name: name.trim(),
+          code: code?.trim() || null,
+          description: description?.trim() || null,
+          teacher_id: teacher_id || null,
+        },
+        include: {
+          teacher: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+        },
+      });
+
+      await logAudit({
+        ...(req.user?.userId && { userId: req.user.userId }),
+        action: "UPDATE",
+        resource: "class",
+        resourceId: classId,
+        details: { name: updatedClass.name, code: updatedClass.code },
+        ...(getClientIp(req) && { ipAddress: getClientIp(req) }),
+      });
+
+      res.json({
+        message: "Class updated successfully",
+        class: updatedClass,
+      });
+    } catch (error) {
+      logger.error({ err: error }, "Error updating class");
+      res.status(500).json({ message: "Error updating class" });
+    }
+  }
+);
+
 app.delete(
   "/api/classes/:id",
   authenticateToken,

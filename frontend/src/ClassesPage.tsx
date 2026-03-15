@@ -52,6 +52,9 @@ export default function ClassesPage() {
   const perPage = 10;
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [classToDelete, setClassToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [classToEdit, setClassToEdit] = useState<Class | null>(null);
+  const [editFormData, setEditFormData] = useState({ name: "", code: "", description: "", teacher_id: "" });
 
   const fetchClasses = async () => {
     if (!token) return;
@@ -108,6 +111,46 @@ export default function ClassesPage() {
       } else setError(data.message || "Failed to create class");
     } catch {
       setError("Error creating class");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const openEdit = (c: Class) => {
+    setClassToEdit(c);
+    setEditFormData({
+      name: c.name,
+      code: c.code || "",
+      description: c.description || "",
+      teacher_id: c.teacher_id || "",
+    });
+    setEditOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token || !classToEdit || !editFormData.name.trim()) {
+      setError("Class name is required");
+      return;
+    }
+    try {
+      setSubmitting(true);
+      setSuccess("");
+      setError("");
+      const res = await fetch(apiUrl(`/api/classes/${classToEdit.id}`), {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(editFormData),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSuccess(`Class "${editFormData.name}" updated successfully!`);
+        setEditOpen(false);
+        setClassToEdit(null);
+        fetchClasses();
+      } else setError(data.message || "Failed to update class");
+    } catch {
+      setError("Error updating class");
     } finally {
       setSubmitting(false);
     }
@@ -246,6 +289,7 @@ export default function ClassesPage() {
                         <TableCell>{new Date(c.created_at).toLocaleDateString()}</TableCell>
                         {isAdmin && (
                           <TableCell>
+                            <Button size="small" variant="outlined" onClick={() => openEdit(c)} sx={{ mr: 1 }}>Edit</Button>
                             <Button size="small" color="error" variant="outlined" onClick={() => { setClassToDelete({ id: c.id, name: c.name }); setDeleteOpen(true); }}>Delete</Button>
                           </TableCell>
                         )}
@@ -261,6 +305,58 @@ export default function ClassesPage() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={editOpen} onClose={() => setEditOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Class</DialogTitle>
+        <form onSubmit={handleEditSubmit}>
+          <DialogContent>
+            {classToEdit && (
+              <Box sx={{ display: "flex", flexDirection: "column", gap: 2, pt: 1 }}>
+                <TextField
+                  label="Class Name"
+                  required
+                  fullWidth
+                  value={editFormData.name}
+                  onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                  placeholder="e.g., Grade 10A"
+                />
+                <TextField
+                  label="Class Code"
+                  fullWidth
+                  value={editFormData.code}
+                  onChange={(e) => setEditFormData({ ...editFormData, code: e.target.value })}
+                  placeholder="e.g., CS101-F24"
+                />
+                <SearchableSelect
+                  label="Assigned Teacher"
+                  value={editFormData.teacher_id}
+                  onChange={(v) => setEditFormData({ ...editFormData, teacher_id: v })}
+                  options={teachers.map((t) => ({ id: t.id, label: `${t.name} (${t.role})` }))}
+                  emptyLabel="Select a teacher (optional)"
+                  width="100%"
+                  disabled={loadingTeachers}
+                  loading={loadingTeachers}
+                />
+                <TextField
+                  label="Description"
+                  multiline
+                  rows={3}
+                  fullWidth
+                  value={editFormData.description}
+                  onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                  placeholder="Optional description"
+                />
+              </Box>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setEditOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="contained" disabled={submitting || !editFormData.name.trim()}>
+              {submitting ? "Saving..." : "Save Changes"}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
 
       <Dialog open={deleteOpen} onClose={() => setDeleteOpen(false)}>
         <DialogTitle>Delete Class</DialogTitle>
