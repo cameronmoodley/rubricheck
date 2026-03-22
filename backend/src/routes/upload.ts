@@ -1778,6 +1778,12 @@ router.post(
           continue;
         }
 
+        // Always update the paper's student_name from n8n (we initially set "Unknown Student")
+        await prisma.paper.update({
+          where: { id: paper.id },
+          data: { student_name: studentName },
+        });
+
         // Check if grade already exists
         const existingGrade = await prisma.grade.findUnique({
           where: { paper_id: paper.id },
@@ -2047,7 +2053,7 @@ router.get(
 
         return {
           id: grade.id,
-          studentName: grade.tbl_papers.student_name,
+          studentName: grade.student_name || grade.tbl_papers.student_name,
           paperFilename: grade.tbl_papers.original_filename || "Unknown",
           uploadedAt: grade.tbl_papers.created_at,
           subjectName: grade.tbl_papers.tbl_subjects?.name || "Unknown Subject",
