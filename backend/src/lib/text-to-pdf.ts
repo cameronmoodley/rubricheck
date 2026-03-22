@@ -1,7 +1,24 @@
 /**
  * Generate a PDF from plain text (e.g. template description for question paper).
+ * pdf-lib StandardFonts (Helvetica) only support WinAnsi encoding - we must
+ * replace Unicode chars (bullets, em dash, smart quotes) with ASCII equivalents.
  */
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+
+function sanitizeForWinAnsi(text: string): string {
+  return text
+    .replace(/\u2022/g, "-")        // bullet •
+    .replace(/\u25CF/g, "-")        // black circle ●
+    .replace(/\u2013/g, "-")        // en dash –
+    .replace(/\u2014/g, "-")       // em dash —
+    .replace(/\u2018/g, "'")       // left single quote ‘
+    .replace(/\u2019/g, "'")       // right single quote ’
+    .replace(/\u201C/g, '"')       // left double quote “
+    .replace(/\u201D/g, '"')       // right double quote "
+    .replace(/\u00A0/g, " ")       // non-breaking space
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")  // control chars
+    .replace(/[^\x00-\xFF]/g, "-"); // any other non-WinAnsi -> hyphen
+}
 
 const MARGIN = 50;
 const PAGE_WIDTH = 612;
@@ -14,7 +31,7 @@ function wrapText(text: string): string[] {
   const lines: string[] = [];
   const paragraphs = text.split(/\n+/);
   for (const para of paragraphs) {
-    let remaining = para.trim();
+    let remaining = sanitizeForWinAnsi(para.trim());
     while (remaining.length > 0) {
       if (remaining.length <= CHARS_PER_LINE) {
         lines.push(remaining);
@@ -33,7 +50,7 @@ export async function textToPdfBuffer(
   text: string | null | undefined,
   title?: string
 ): Promise<Buffer> {
-  const safeText = text?.trim() || "(No content)";
+  const safeText = sanitizeForWinAnsi(text?.trim() || "(No content)");
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const boldFont = await doc.embedFont(StandardFonts.HelveticaBold);
@@ -41,7 +58,7 @@ export async function textToPdfBuffer(
   let page = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   let y = PAGE_HEIGHT - MARGIN;
 
-  const titleLines = title ? wrapText(title) : [];
+  const titleLines = title ? wrapText(sanitizeForWinAnsi(title)) : [];
   const contentLines = wrapText(safeText);
 
   for (const line of [...titleLines, "", ...contentLines]) {
