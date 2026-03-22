@@ -766,6 +766,52 @@ router.post("/n8n/grades", authenticateWebhook, async (req: Request, res: Respon
   }
 });
 
+// GET /api/submissions/:id/status - Get grading progress (for UX polling)
+router.get(
+  "/submissions/:id/status",
+  authenticateToken,
+  checkRole(["TEACHER", "ADMIN"]),
+  async (req: Request, res: Response) => {
+    try {
+      const submissionId = req.params.id;
+      if (!submissionId) {
+        return res.status(400).json({ error: "Submission ID is required" });
+      }
+
+      const submission = await prisma.submission.findUnique({
+        where: { id: submissionId },
+        include: { tbl_papers: { select: { id: true } } },
+      });
+
+      if (!submission) {
+        return res.status(404).json({ error: "Submission not found" });
+      }
+
+      const userRole = req.user?.role;
+      const userId = req.user?.userId;
+      if (userRole === "TEACHER" && submission.submitted_by_id !== userId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const totalPapers = submission.tbl_papers.length;
+      const gradedCount = await prisma.grade.count({
+        where: { submission_id: submissionId },
+      });
+
+      res.json({
+        submissionId,
+        status: submission.status,
+        totalPapers,
+        gradedCount,
+        isComplete: submission.status === "COMPLETED" || gradedCount >= totalPapers,
+      });
+    } catch (error: any) {
+      logger.error({ err: error }, "Submission status error");
+      res.status(500).json({ error: "Failed to fetch submission status" });
+    }
+  }
+);
+
 // POST /api/submissions/:submissionId/retry - Retry grading for next ungraded paper
 router.post(
   "/submissions/:submissionId/retry",

@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Box,
   Typography,
@@ -20,6 +21,8 @@ import {
   InputAdornment,
   Pagination,
   Chip,
+  LinearProgress,
+  CircularProgress,
 } from "@mui/material";
 import { SearchableSelect } from "./components/SearchableSelect";
 import { Search, Download } from "@mui/icons-material";
@@ -47,6 +50,7 @@ type Subject = { id: string; name: string; code?: string };
 
 export default function ResultsPage() {
   const { token, user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [grades, setGrades] = useState<Grade[]>([]);
   const [classes, setClasses] = useState<Class[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -55,6 +59,14 @@ export default function ResultsPage() {
   const [selectedClassId, setSelectedClassId] = useState("");
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [search, setSearch] = useState("");
+  const [gradingStatus, setGradingStatus] = useState<{
+    submissionId: string;
+    totalPapers: number;
+    gradedCount: number;
+    isComplete: boolean;
+  } | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [page, setPage] = useState(1);
   const perPage = 10;
   const [detailOpen, setDetailOpen] = useState(false);
@@ -66,6 +78,24 @@ export default function ResultsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // Read URL params on mount (from upload redirect)
+  useEffect(() => {
+    const classId = searchParams.get("classId");
+    const subjectId = searchParams.get("subjectId");
+    const submissionId = searchParams.get("submissionId");
+    const paperCount = searchParams.get("paperCount");
+    if (classId) setSelectedClassId(classId);
+    if (subjectId) setSelectedSubjectId(subjectId);
+    if (submissionId && paperCount) {
+      setGradingStatus({
+        submissionId,
+        totalPapers: parseInt(paperCount, 10) || 0,
+        gradedCount: 0,
+        isComplete: false,
+      });
+    }
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -85,20 +115,68 @@ export default function ResultsPage() {
       .then((d) => setSubjects(d.subjects || []));
   }, [selectedClassId, token]);
 
-  useEffect(() => {
-    if (!token) return;
-    setLoading(true);
-    setError(null);
+  const fetchGrades = () => {
+    if (!token) return Promise.resolve();
     const params = new URLSearchParams();
     if (selectedClassId) params.set("classId", selectedClassId);
     if (selectedSubjectId) params.set("subjectId", selectedSubjectId);
     const url = params.toString() ? `/api/grades?${params.toString()}` : "/api/grades";
-    fetch(apiUrl(url), { headers: { Authorization: `Bearer ${token}` } })
+    return fetch(apiUrl(url), { headers: { Authorization: `Bearer ${token}` } })
       .then((r) => r.json())
-      .then((d) => setGrades(d.grades || []))
+      .then((d) => setGrades(d.grades || []));
+  };
+
+  useEffect(() => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
+    fetchGrades()
       .catch(() => setError("Failed to fetch grades"))
       .finally(() => setLoading(false));
   }, [token, selectedClassId, selectedSubjectId]);
+
+  // Poll submission status when grading in progress
+  useEffect(() => {
+    const subId = gradingStatus?.submissionId;
+    if (!subId || !token || gradingStatus?.isComplete) return;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(apiUrl(`/api/submissions/${subId}/status`), {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = (await res.json()) as {
+          gradedCount?: number;
+          totalPapers?: number;
+          isComplete?: boolean;
+        };
+        if (res.ok) {
+          setGradingStatus((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  gradedCount: data.gradedCount ?? prev.gradedCount,
+                  totalPapers: data.totalPapers ?? prev.totalPapers,
+                  isComplete: data.isComplete ?? false,
+                }
+              : null
+          );
+          if (data.isComplete) {
+            fetchGrades().finally(() => setGradingStatus(null));
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    poll();
+    const id = setInterval(poll, 4000);
+    pollIntervalRef.current = id;
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, [gradingStatus?.submissionId, token, gradingStatus?.isComplete]);
 
   const filtered = grades.filter(
     (g) =>
@@ -202,6 +280,45 @@ export default function ResultsPage() {
       </Typography>
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      {gradingStatus && !gradingStatus.isComplete && (
+        <Alert
+          severity="info"
+          sx={{ mb: 2 }}
+          action={
+            <Button
+              size="small"
+              onClick={async () => {
+                if (!gradingStatus?.submissionId || !token) return;
+                setRetrying(true);
+                try {
+                  const res = await fetch(apiUrl(`/api/submissions/${gradingStatus.submissionId}/retry`), {
+                    method: "POST",
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  const data = (await res.json().catch(() => ({}))) as { success?: boolean };
+                  if (res.ok && data.success) {
+                    setGradingStatus((prev) => prev ? { ...prev, gradedCount: prev.gradedCount } : null);
+                  }
+                } finally {
+                  setRetrying(false);
+                }
+              }}
+              disabled={retrying}
+            >
+              {retrying ? "Retrying..." : "Retry if stuck"}
+            </Button>
+          }
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+            <CircularProgress size={20} />
+            <Typography>
+              Grading {gradingStatus.gradedCount} of {gradingStatus.totalPapers} paper
+              {gradingStatus.totalPapers !== 1 ? "s" : ""}…
+            </Typography>
+          </Box>
+        </Alert>
+      )}
 
       <Card sx={{ mb: 2 }}>
         <CardContent>
