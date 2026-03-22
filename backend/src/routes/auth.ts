@@ -31,16 +31,27 @@ router.post("/forgot-password", authRateLimiter, validateForgotPassword, forgotP
 router.post("/reset-password", authRateLimiter, validateResetPassword, resetPassword);
 
 // Validate token endpoint
-router.get("/validate", authenticateToken, (req, res) => {
-  // If we get here, the token is valid (authenticateToken middleware passed)
-  res.json({
-    isValid: true,
-    user: {
-      id: req.user?.userId,
-      email: req.user?.email,
-      role: req.user?.role,
-    },
-  });
+router.get("/validate", authenticateToken, async (req, res) => {
+  try {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: req.user?.userId },
+      select: { id: true, email: true, name: true, role: true },
+    });
+    if (!dbUser) {
+      return res.status(401).json({ isValid: false });
+    }
+    res.json({
+      isValid: true,
+      user: {
+        id: dbUser.id,
+        email: dbUser.email,
+        name: dbUser.name,
+        role: dbUser.role,
+      },
+    });
+  } catch {
+    res.status(500).json({ isValid: false });
+  }
 });
 
 export default router;

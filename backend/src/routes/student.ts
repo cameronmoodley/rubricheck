@@ -42,17 +42,21 @@ router.get(
         orderBy: { created_at: "desc" },
       });
 
-      const result = grades.map((g) => ({
-        id: g.id,
-        studentName: g.student_name,
-        score: Number(g.total_score),
-        goodComments: (g.criteria_scores as Record<string, unknown>)?.goodComments || "",
-        badComments: (g.criteria_scores as Record<string, unknown>)?.badComments || "",
-        gradedAt: g.created_at,
-        paperFilename: g.tbl_papers.original_filename,
-        subjectName: g.tbl_papers.tbl_subjects?.name || "Unknown",
-        subjectCode: g.tbl_papers.tbl_subjects?.code,
-      }));
+      const result = grades.map((g) => {
+        const cs = (g.criteria_scores || {}) as Record<string, unknown>;
+        return {
+          id: g.id,
+          studentName: g.student_name,
+          score: Number(g.total_score),
+          goodComments: cs.goodComments || "",
+          badComments: cs.badComments || "",
+          sections: cs.sections || null,
+          gradedAt: g.created_at,
+          paperFilename: g.tbl_papers.original_filename,
+          subjectName: g.tbl_papers.tbl_subjects?.name || "Unknown",
+          subjectCode: g.tbl_papers.tbl_subjects?.code,
+        };
+      });
 
       res.json({ grades: result });
     } catch (error: any) {

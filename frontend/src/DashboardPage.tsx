@@ -267,7 +267,7 @@ export default function DashboardPage() {
   return (
     <Box>
       <Typography variant="h4" fontWeight={700} gutterBottom>
-        Welcome, {user?.name || "Teacher"}
+        Welcome, {user?.name || (user?.email ? user.email.split("@")[0].charAt(0).toUpperCase() + user.email.split("@")[0].slice(1) : "there")}
       </Typography>
       <Typography color="text.secondary" sx={{ mb: 3 }}>
         RubriCheck Dashboard – Your AI-powered grading assistant

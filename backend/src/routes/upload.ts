@@ -23,6 +23,41 @@ const N8N_EXAM_PROJECTS_WEBHOOK_URL =
 
 import { getN8nRequestHeaders } from "../lib/n8n-client";
 
+// Parse section-based grade format (intro, introMark, main, mainMark, etc.) into sections + total score.
+// Supports: introduction/introductionMark, main/mainMark, solutionTechnical/solutionTechnicalMark, etc.
+function parseSectionBasedGrade(grade: Record<string, unknown>): {
+  score: number;
+  criteriaScores: Record<string, unknown>;
+} {
+  const sections: Array<{ name: string; feedback: string; mark: number }> = [];
+  const marks: number[] = [];
+
+  for (const [key, value] of Object.entries(grade)) {
+    if (key.endsWith("Mark") && typeof value === "number") {
+      const baseKey = key.slice(0, -4); // "introductionMark" -> "introduction"
+      const feedback = (grade[baseKey] as string) || "";
+      const displayName = baseKey
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (c) => c.toUpperCase())
+        .trim();
+      sections.push({ name: displayName, feedback, mark: value });
+      marks.push(value);
+    }
+  }
+
+  const computedScore = marks.length > 0 ? Math.round(marks.reduce((a, b) => a + b, 0) / marks.length) : 0;
+  const score = typeof grade.score === "number" ? grade.score : computedScore;
+
+  const criteriaScores: Record<string, unknown> = {
+    goodComments: (grade.goodComments as string) || "",
+    badComments: (grade.badComments as string) || "",
+  };
+  if (sections.length > 0) {
+    criteriaScores.sections = sections;
+  }
+  return { score, criteriaScores };
+}
+
 // In-memory storage for file buffers (cleaned up when submission completes)
 // Key: submission_id, Value: { rubricBuffer, questionBuffer?, paperBuffers: Map<paperId, buffer> }
 const fileBufferCache = new Map<
@@ -466,23 +501,27 @@ router.post("/n8n/grades", authenticateWebhook, async (req: Request, res: Respon
         paperToken,
         paperId,
         dbPaperId,
+        db_paper_id,
         originalFilename,
         submissionId,
         dbSubmissionId,
+        db_submission_id,
         score,
         goodComments,
         badComments,
       } = grade;
+      const resolvedPaperId = dbPaperId || db_paper_id || paperId;
+      const resolvedSubmissionId = dbSubmissionId || db_submission_id || submissionId;
 
-      logger.debug({ studentName, score }, "Processing grade");
+      logger.debug({ studentName, score, resolvedPaperId }, "Processing grade");
 
       // Find paper using multiple strategies
       let paper = null;
 
-      // Strategy 1: Use paperId/dbPaperId if provided
-      if (paperId || dbPaperId) {
+      // Strategy 1: Use paperId/dbPaperId if provided (n8n must pass these from the incoming webhook)
+      if (resolvedPaperId) {
         paper = await prisma.paper.findUnique({
-          where: { id: dbPaperId || paperId },
+          where: { id: resolvedPaperId },
         });
         logger.debug(
           { found: !!paper, filename: paper?.original_filename },
@@ -502,17 +541,28 @@ router.post("/n8n/grades", authenticateWebhook, async (req: Request, res: Respon
         );
       }
 
-      // Strategy 3: Use submissionId to find latest paper
-      if (!paper && (submissionId || dbSubmissionId)) {
-        const submissionIdToUse = dbSubmissionId || submissionId;
-        paper = await prisma.paper.findFirst({
+      // Strategy 3: Use submissionId - find OLDEST ungraded paper (we process sequentially, oldest first)
+      // Using "most recent" was wrong: with 2 papers, callbacks without dbPaperId always matched Paper 2,
+      // causing Paper 1 to be re-sent and never graded.
+      if (!paper && resolvedSubmissionId) {
+        const submissionIdToUse = resolvedSubmissionId;
+        const submissionPapers = await prisma.paper.findMany({
           where: { submission_id: submissionIdToUse },
-          orderBy: { created_at: "desc" },
+          orderBy: { created_at: "asc" },
         });
-        logger.debug(
-          { found: !!paper, filename: paper?.original_filename },
-          "Found paper by submission"
+        const gradedPaperIds = new Set(
+          (await prisma.grade.findMany({
+            where: { paper_id: { in: submissionPapers.map((p) => p.id) } },
+            select: { paper_id: true },
+          })).map((g) => g.paper_id)
         );
+        paper = submissionPapers.find((p) => !gradedPaperIds.has(p.id)) ?? null;
+        if (paper) {
+          logger.debug(
+            { found: true, filename: paper.original_filename },
+            "Found paper by submission (oldest ungraded)"
+          );
+        }
       }
 
       // Strategy 4: Fallback to most recent paper (but only if we have a student name match)
@@ -543,15 +593,25 @@ router.post("/n8n/grades", authenticateWebhook, async (req: Request, res: Respon
         continue;
       }
 
-      // Process comments (handle both array and string formats)
-      let processedGoodComments = goodComments;
-      let processedBadComments = badComments;
+      // Determine score and criteria_scores: support section-based format (intro/introMark, main/mainMark, etc.)
+      const hasSectionMarks = Object.keys(grade).some((k) => k.endsWith("Mark") && typeof grade[k] === "number");
+      let totalScore: number;
+      let criteriaScores: Record<string, unknown>;
 
-      if (Array.isArray(goodComments)) {
-        processedGoodComments = goodComments.join(" ");
-      }
-      if (Array.isArray(badComments)) {
-        processedBadComments = badComments.join(" ");
+      if (hasSectionMarks) {
+        const parsed = parseSectionBasedGrade(grade as Record<string, unknown>);
+        totalScore = parsed.score;
+        criteriaScores = parsed.criteriaScores;
+      } else {
+        totalScore = typeof score === "number" ? score : 0;
+        let processedGoodComments = goodComments;
+        let processedBadComments = badComments;
+        if (Array.isArray(goodComments)) processedGoodComments = goodComments.join(" ");
+        if (Array.isArray(badComments)) processedBadComments = badComments.join(" ");
+        criteriaScores = {
+          goodComments: processedGoodComments || "",
+          badComments: processedBadComments || "",
+        };
       }
 
       // Check if this paper already has a grade to prevent duplicate processing
@@ -574,11 +634,8 @@ router.post("/n8n/grades", authenticateWebhook, async (req: Request, res: Respon
           submission_id: paper.submission_id,
           paper_id: paper.id,
           student_name: studentName,
-          total_score: score,
-          criteria_scores: {
-            goodComments: processedGoodComments,
-            badComments: processedBadComments,
-          },
+          total_score: totalScore,
+          criteria_scores: criteriaScores as object,
         },
       });
 
@@ -593,15 +650,16 @@ router.post("/n8n/grades", authenticateWebhook, async (req: Request, res: Respon
 
     // Collect unique submission IDs from the papers that were just graded
     for (const grade of grades) {
-      const { paperId, dbPaperId, submissionId, dbSubmissionId } = grade;
+      const resolvedPaperId = grade.dbPaperId || grade.db_paper_id || grade.paperId;
+      const resolvedSubmissionId = grade.dbSubmissionId || grade.db_submission_id || grade.submissionId;
 
       // Find the paper that was just graded using the same logic as above
       let paper = null;
 
       // Strategy 1: Use paperId/dbPaperId if provided
-      if (paperId || dbPaperId) {
+      if (resolvedPaperId) {
         paper = await prisma.paper.findUnique({
-          where: { id: dbPaperId || paperId },
+          where: { id: resolvedPaperId },
         });
       }
 
@@ -613,13 +671,20 @@ router.post("/n8n/grades", authenticateWebhook, async (req: Request, res: Respon
         });
       }
 
-      // Strategy 3: Use submissionId to find latest paper
-      if (!paper && (submissionId || dbSubmissionId)) {
-        const submissionIdToUse = dbSubmissionId || submissionId;
-        paper = await prisma.paper.findFirst({
+      // Strategy 3: Use submissionId - find oldest ungraded paper (sequential processing)
+      if (!paper && resolvedSubmissionId) {
+        const submissionIdToUse = resolvedSubmissionId;
+        const submissionPapers = await prisma.paper.findMany({
           where: { submission_id: submissionIdToUse },
-          orderBy: { created_at: "desc" },
+          orderBy: { created_at: "asc" },
         });
+        const gradedPaperIds = new Set(
+          (await prisma.grade.findMany({
+            where: { paper_id: { in: submissionPapers.map((p) => p.id) } },
+            select: { paper_id: true },
+          })).map((g) => g.paper_id)
+        );
+        paper = submissionPapers.find((p) => !gradedPaperIds.has(p.id)) ?? null;
       }
 
       // Strategy 4: Fallback to most recent paper (but only if we have a student name match)
@@ -836,20 +901,24 @@ router.get(
         ...params
       )) as any[];
 
-      const grades = rows.map((row) => ({
-        id: row.grade_id,
-        studentName: row.student_name,
-        score: row.total_score,
-        goodComments: row.criteria_scores?.goodComments || "",
-        badComments: row.criteria_scores?.badComments || "",
-        gradedAt: row.graded_at,
-        paperFilename: row.original_filename,
-        uploadedAt: row.uploaded_at,
-        subjectId: row.subject_id,
-        subjectName: row.subject_name,
-        subjectCode: row.subject_code,
-        classId: row.class_id,
-      }));
+      const grades = rows.map((row) => {
+        const cs = (row.criteria_scores || {}) as Record<string, unknown>;
+        return {
+          id: row.grade_id,
+          studentName: row.student_name,
+          score: Number(row.total_score),
+          goodComments: cs.goodComments || "",
+          badComments: cs.badComments || "",
+          sections: cs.sections || null,
+          gradedAt: row.graded_at,
+          paperFilename: row.original_filename,
+          uploadedAt: row.uploaded_at,
+          subjectId: row.subject_id,
+          subjectName: row.subject_name,
+          subjectCode: row.subject_code,
+          classId: row.class_id,
+        };
+      });
 
       logger.debug({ count: grades.length }, "Returning grades");
 
@@ -917,8 +986,14 @@ router.get(
       const rows = (await prisma.$queryRawUnsafe<any[]>(query, ...params)) as any[];
 
       const exportFormat = (format as string) || "csv";
-      const goodComments = (r: any) => r.criteria_scores?.goodComments || "";
-      const badComments = (r: any) => r.criteria_scores?.badComments || "";
+      const cs = (r: any) => r.criteria_scores || {};
+      const goodComments = (r: any) => {
+        const c = cs(r);
+        if (c.goodComments) return c.goodComments;
+        const sections = c.sections as Array<{ name: string; feedback: string; mark: number }> | undefined;
+        return sections?.map((s) => `${s.name} (${s.mark}): ${s.feedback}`).join("\n\n") || "";
+      };
+      const badComments = (r: any) => cs(r).badComments || "";
 
       if (exportFormat === "xlsx" || exportFormat === "excel") {
         const XLSX = await import("xlsx");
@@ -980,7 +1055,7 @@ router.put(
   async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { goodComments, badComments, comprehensiveFeedback } = req.body;
+      const { goodComments, badComments, comprehensiveFeedback, sections } = req.body;
 
       if (!id) {
         return res.status(400).json({ error: "Grade ID is required" });
@@ -996,18 +1071,23 @@ router.put(
       }
 
       const updateData: { criteria_scores?: object; comments?: string } = {};
+      const existingCs = (grade.criteria_scores || {}) as Record<string, unknown>;
 
       // Exam project grades: update comprehensiveFeedback
       if (comprehensiveFeedback && typeof comprehensiveFeedback === "object") {
         updateData.comments = JSON.stringify(comprehensiveFeedback);
       }
 
+      // Section-based grades: update sections array
+      if (sections && Array.isArray(sections)) {
+        updateData.criteria_scores = { ...existingCs, sections };
+      }
       // Paper grades: update goodComments/badComments
-      if (goodComments !== undefined || badComments !== undefined) {
+      else if (goodComments !== undefined || badComments !== undefined) {
         const updatedCriteriaScores = {
-          ...(grade.criteria_scores as any),
-          goodComments: goodComments !== undefined ? goodComments : (grade.criteria_scores as any)?.goodComments || "",
-          badComments: badComments !== undefined ? badComments : (grade.criteria_scores as any)?.badComments || "",
+          ...existingCs,
+          goodComments: goodComments !== undefined ? goodComments : existingCs.goodComments || "",
+          badComments: badComments !== undefined ? badComments : existingCs.badComments || "",
         };
         updateData.criteria_scores = updatedCriteriaScores;
       }
@@ -1029,8 +1109,10 @@ router.put(
         grade: { id: updatedGrade.id },
       };
       if (updateData.criteria_scores) {
-        (result.grade as any).goodComments = (updateData.criteria_scores as any).goodComments;
-        (result.grade as any).badComments = (updateData.criteria_scores as any).badComments;
+        const ucs = updateData.criteria_scores as Record<string, unknown>;
+        (result.grade as any).goodComments = ucs.goodComments;
+        (result.grade as any).badComments = ucs.badComments;
+        (result.grade as any).sections = ucs.sections;
       }
       if (updateData.comments) {
         (result.grade as any).comprehensiveFeedback = JSON.parse(updateData.comments);
@@ -1531,19 +1613,44 @@ router.post(
   authenticateWebhook,
   async (req: Request, res: Response) => {
     try {
-      // Handle both formats: direct object {grades: [...]} or array [{grades: [...]}]
+      let body = req.body;
+      if (typeof body === "string") {
+        try {
+          body = JSON.parse(body);
+        } catch {
+          return res.status(400).json({ error: "Invalid grades data format" });
+        }
+      }
+      if (!body || typeof body !== "object") {
+        return res.status(400).json({ error: "Invalid grades data format" });
+      }
+
+      // n8n sometimes wraps in .body or .json (from Code node output)
+      const data =
+        body.body !== undefined ? body.body :
+        body.json !== undefined ? body.json :
+        body;
+
+      // Handle multiple formats: {grades: [...]}, [{grades: [...]}], or direct array of grade objects
       let grades;
-      if (
-        Array.isArray(req.body) &&
-        req.body.length > 0 &&
-        req.body[0].grades
-      ) {
-        // Format: [{grades: [...]}]
-        grades = req.body[0].grades;
-      } else if (req.body.grades) {
-        // Format: {grades: [...]}
-        grades = req.body.grades;
+      if (data?.grades && Array.isArray(data.grades)) {
+        grades = data.grades;
+      } else if (data?.body && Array.isArray(data.body)) {
+        grades = data.body;
+      } else if (data?.json && Array.isArray(data.json)) {
+        grades = data.json;
+      } else if (Array.isArray(data) && data.length > 0) {
+        if (data[0]?.grades && Array.isArray(data[0].grades)) {
+          grades = data[0].grades;
+        } else if (data[0]?.studentName) {
+          grades = data;
+        } else {
+          return res.status(400).json({ error: "Invalid grades data format" });
+        }
+      } else if (data?.studentName) {
+        grades = [data];
       } else {
+        logger.debug({ bodyKeys: Object.keys(body || {}), dataKeys: Object.keys(data || {}) }, "Exam projects grades: unrecognized format");
         return res.status(400).json({ error: "Invalid grades data format" });
       }
 

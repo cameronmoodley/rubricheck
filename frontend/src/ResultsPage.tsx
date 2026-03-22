@@ -26,12 +26,15 @@ import { Search, Download } from "@mui/icons-material";
 import { useAuth } from "./hooks/useAuth";
 import { apiUrl } from "./lib/api";
 
+type Section = { name: string; feedback: string; mark: number };
+
 type Grade = {
   id: string;
   studentName: string;
   score: number;
   goodComments?: string;
   badComments?: string;
+  sections?: Section[] | null;
   gradedAt: string;
   paperFilename: string;
   uploadedAt: string;
@@ -59,6 +62,7 @@ export default function ResultsPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editedGood, setEditedGood] = useState("");
   const [editedBad, setEditedBad] = useState("");
+  const [editedSections, setEditedSections] = useState<Section[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -117,6 +121,7 @@ export default function ResultsPage() {
     setSelectedGrade(grade);
     setEditedGood(grade.goodComments || "");
     setEditedBad(grade.badComments || "");
+    setEditedSections(grade.sections ? [...grade.sections] : []);
     setIsEditing(false);
     setSaveSuccess(false);
     setDetailOpen(true);
@@ -127,20 +132,24 @@ export default function ResultsPage() {
     try {
       setSaving(true);
       setSaveSuccess(false);
+      const body = selectedGrade.sections?.length
+        ? { sections: editedSections }
+        : { goodComments: editedGood, badComments: editedBad };
       const res = await fetch(apiUrl(`/api/grades/${selectedGrade.id}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ goodComments: editedGood, badComments: editedBad }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         setSaveSuccess(true);
         setIsEditing(false);
+        const updated = selectedGrade.sections?.length
+          ? { ...selectedGrade, sections: editedSections }
+          : { ...selectedGrade, goodComments: editedGood, badComments: editedBad };
         setGrades((prev) =>
-          prev.map((g) =>
-            g.id === selectedGrade.id ? { ...g, goodComments: editedGood, badComments: editedBad } : g
-          )
+          prev.map((g) => (g.id === selectedGrade.id ? updated : g))
         );
-        setSelectedGrade({ ...selectedGrade, goodComments: editedGood, badComments: editedBad });
+        setSelectedGrade(updated);
       } else {
         const data = await res.json();
         alert(data.message || "Failed to save");
@@ -297,36 +306,84 @@ export default function ResultsPage() {
               <Typography variant="body2" color="text.secondary"><strong>Uploaded:</strong> {new Date(selectedGrade.uploadedAt).toLocaleString()}</Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}><strong>Graded:</strong> {new Date(selectedGrade.gradedAt).toLocaleString()}</Typography>
 
-              {(selectedGrade.goodComments || isEditing) && (
+              {selectedGrade.sections && selectedGrade.sections.length > 0 ? (
                 <Box sx={{ mb: 2 }}>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                    <Typography fontWeight={600}>✓ Positive Feedback</Typography>
-                    {!isEditing && selectedGrade.goodComments && (
-                      <Button size="small" onClick={() => copyToClipboard(selectedGrade.goodComments || "", "Positive Feedback")}>Copy</Button>
-                    )}
+                  <Typography variant="subtitle2" fontWeight={600} gutterBottom>Feedback by Section</Typography>
+                  <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    {(isEditing ? editedSections : selectedGrade.sections).map((section, idx) => (
+                      <Paper key={section.name} variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}>
+                        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                          <Typography fontWeight={600}>{section.name}</Typography>
+                          {!isEditing ? (
+                            <Chip size="small" label={`${section.mark}/100`} color={section.mark >= 80 ? "success" : section.mark >= 70 ? "info" : "warning"} />
+                          ) : (
+                            <TextField
+                              type="number"
+                              size="small"
+                              value={editedSections[idx]?.mark ?? section.mark}
+                              onChange={(e) => {
+                                const n = [...editedSections];
+                                n[idx] = { ...n[idx], mark: Number(e.target.value) };
+                                setEditedSections(n);
+                              }}
+                              inputProps={{ min: 0, max: 100 }}
+                              sx={{ width: 80 }}
+                            />
+                          )}
+                        </Box>
+                        {isEditing ? (
+                          <TextField
+                            fullWidth
+                            multiline
+                            minRows={2}
+                            value={editedSections[idx]?.feedback ?? section.feedback}
+                            onChange={(e) => {
+                              const n = [...editedSections];
+                              n[idx] = { ...n[idx], feedback: e.target.value };
+                              setEditedSections(n);
+                            }}
+                          />
+                        ) : (
+                          <Typography variant="body2">{section.feedback}</Typography>
+                        )}
+                      </Paper>
+                    ))}
                   </Box>
-                  {isEditing ? (
-                    <TextField fullWidth multiline rows={4} value={editedGood} onChange={(e) => setEditedGood(e.target.value)} />
-                  ) : (
-                    <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}><Typography variant="body2">{selectedGrade.goodComments}</Typography></Paper>
-                  )}
                 </Box>
-              )}
+              ) : (
+                <>
+                  {(selectedGrade.goodComments || isEditing) && (
+                    <Box sx={{ mb: 2 }}>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                        <Typography fontWeight={600}>✓ Positive Feedback</Typography>
+                        {!isEditing && selectedGrade.goodComments && (
+                          <Button size="small" onClick={() => copyToClipboard(selectedGrade.goodComments || "", "Positive Feedback")}>Copy</Button>
+                        )}
+                      </Box>
+                      {isEditing ? (
+                        <TextField fullWidth multiline rows={4} value={editedGood} onChange={(e) => setEditedGood(e.target.value)} />
+                      ) : (
+                        <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}><Typography variant="body2">{selectedGrade.goodComments}</Typography></Paper>
+                      )}
+                    </Box>
+                  )}
 
-              {(selectedGrade.badComments || isEditing) && (
-                <Box sx={{ mb: 2 }}>
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                    <Typography fontWeight={600}>✗ Areas for Improvement</Typography>
-                    {!isEditing && selectedGrade.badComments && (
-                      <Button size="small" onClick={() => copyToClipboard(selectedGrade.badComments || "", "Areas for Improvement")}>Copy</Button>
-                    )}
-                  </Box>
-                  {isEditing ? (
-                    <TextField fullWidth multiline rows={4} value={editedBad} onChange={(e) => setEditedBad(e.target.value)} />
-                  ) : (
-                    <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}><Typography variant="body2">{selectedGrade.badComments}</Typography></Paper>
+                  {(selectedGrade.badComments || isEditing) && (
+                    <Box sx={{ mb: 2 }}>
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                        <Typography fontWeight={600}>✗ Areas for Improvement</Typography>
+                        {!isEditing && selectedGrade.badComments && (
+                          <Button size="small" onClick={() => copyToClipboard(selectedGrade.badComments || "", "Areas for Improvement")}>Copy</Button>
+                        )}
+                      </Box>
+                      {isEditing ? (
+                        <TextField fullWidth multiline rows={4} value={editedBad} onChange={(e) => setEditedBad(e.target.value)} />
+                      ) : (
+                        <Paper variant="outlined" sx={{ p: 2, bgcolor: "grey.50" }}><Typography variant="body2">{selectedGrade.badComments}</Typography></Paper>
+                      )}
+                    </Box>
                   )}
-                </Box>
+                </>
               )}
 
               <Box sx={{ display: "flex", justifyContent: "space-between", mt: 2 }}>
@@ -336,7 +393,7 @@ export default function ResultsPage() {
                   ) : (
                     <>
                       <Button variant="contained" onClick={handleSaveFeedback} disabled={saving} sx={{ mr: 1 }}>{saving ? "Saving..." : "Save"}</Button>
-                      <Button onClick={() => { setIsEditing(false); setEditedGood(selectedGrade.goodComments || ""); setEditedBad(selectedGrade.badComments || ""); }} disabled={saving}>Cancel</Button>
+                      <Button onClick={() => { setIsEditing(false); setEditedGood(selectedGrade.goodComments || ""); setEditedBad(selectedGrade.badComments || ""); setEditedSections(selectedGrade.sections ? [...selectedGrade.sections] : []); }} disabled={saving}>Cancel</Button>
                     </>
                   )}
                 </Box>
