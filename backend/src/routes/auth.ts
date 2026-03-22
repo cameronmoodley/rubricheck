@@ -33,8 +33,12 @@ router.post("/reset-password", authRateLimiter, validateResetPassword, resetPass
 // Validate token endpoint
 router.get("/validate", authenticateToken, async (req, res) => {
   try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ isValid: false });
+    }
     const dbUser = await prisma.user.findUnique({
-      where: { id: req.user?.userId },
+      where: { id: userId },
       select: { id: true, email: true, name: true, role: true },
     });
     if (!dbUser) {
