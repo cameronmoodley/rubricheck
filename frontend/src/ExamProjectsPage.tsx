@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Typography,
@@ -25,6 +26,7 @@ type Subject = { id: string; name: string; code?: string };
 
 export default function ExamProjectsPage() {
   const { token, user } = useAuth();
+  const navigate = useNavigate();
   const [classes, setClasses] = useState<Class[]>([]);
   const [selectedClassId, setSelectedClassId] = useState("");
   const [loadingClasses, setLoadingClasses] = useState(true);
@@ -138,12 +140,18 @@ export default function ExamProjectsPage() {
         throw new Error(data.error || `Upload failed (${res.status})`);
       }
       const count = data.totalPapers ?? paperFiles.length;
-      setResult(`Success! ${count} exam project(s) submitted. Submission ID: ${data.submissionId}`);
       setUploadProgress(100);
       setRubricFile(null);
       setQuestionFile(null);
       setSelectedTemplateId("");
       setPaperFiles([]);
+
+      const params = new URLSearchParams();
+      params.set("subjectId", selectedSubjectId);
+      if (data.submissionId) params.set("submissionId", data.submissionId);
+      params.set("paperCount", String(count));
+      navigate(`/exam-project-results?${params.toString()}`);
+
       setSelectedSubjectId("");
       (document.getElementById("rubric-upload") as HTMLInputElement)?.form?.reset();
       (document.getElementById("question-upload") as HTMLInputElement)?.form?.reset();

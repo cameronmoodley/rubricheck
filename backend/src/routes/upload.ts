@@ -1711,6 +1711,10 @@ router.post(
       for (const grade of grades) {
         const {
           studentName,
+          dbPaperId,
+          db_paper_id,
+          dbSubmissionId,
+          db_submission_id,
           introduction,
           introductionMark,
           main,
@@ -1722,32 +1726,50 @@ router.post(
           referencesResearchPenmanship,
           referencesResearchPenmanshipMark,
         } = grade;
+        const resolvedPaperId = dbPaperId || db_paper_id;
+        const resolvedSubmissionId = dbSubmissionId || db_submission_id;
 
         if (!studentName) {
           logger.warn("Skipping grade without student name");
           continue;
         }
 
-        // Find the paper by student name, or by "Unknown Student" if not found
-        let paper = await prisma.paper.findFirst({
-          where: { student_name: studentName },
-          orderBy: { created_at: "desc" },
-        });
-
-        // If not found by exact name, try to find by "Unknown Student" (most recent)
+        // Find paper: prefer dbPaperId (we send one paper per webhook call, n8n must echo it back)
+        let paper = null;
+        if (resolvedPaperId) {
+          paper = await prisma.paper.findUnique({
+            where: { id: resolvedPaperId },
+          });
+        }
+        if (!paper && studentName) {
+          paper = await prisma.paper.findFirst({
+            where: { student_name: studentName },
+            orderBy: { created_at: "desc" },
+          });
+        }
+        if (!paper && resolvedSubmissionId) {
+          const submissionPapers = await prisma.paper.findMany({
+            where: { submission_id: resolvedSubmissionId },
+            orderBy: { created_at: "asc" },
+          });
+          const gradedIds = new Set(
+            (await prisma.grade.findMany({
+              where: { paper_id: { in: submissionPapers.map((p) => p.id) } },
+              select: { paper_id: true },
+            })).map((g) => g.paper_id)
+          );
+          paper = submissionPapers.find((p) => !gradedIds.has(p.id)) ?? null;
+        }
         if (!paper) {
           paper = await prisma.paper.findFirst({
             where: { student_name: "Unknown Student" },
             orderBy: { created_at: "desc" },
           });
-
-          // Update the student name if we found a paper
           if (paper) {
             await prisma.paper.update({
               where: { id: paper.id },
               data: { student_name: studentName },
             });
-            logger.debug({ studentName }, "Updated student name");
           }
         }
 
