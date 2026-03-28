@@ -26,7 +26,7 @@ USER nodejs
 
 EXPOSE 8001
 
-RUN cat > /app/migrate.sh << 'EOF'
+RUN cat > /app/migrate.sh << 'EOF' && chmod +x /app/migrate.sh
 #!/bin/sh
 npx prisma generate
 
@@ -43,7 +43,6 @@ else
   exec node dist/index.js
 fi
 EOF
-chmod +x /app/migrate.sh
 
 ENTRYPOINT ["./entrypoint.sh"]
 CMD ["sh", "/app/migrate.sh"]
