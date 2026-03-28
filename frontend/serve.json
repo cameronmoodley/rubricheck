@@ -1,4 +1,10 @@
 {
   "cleanUrls": false,
-  "trailingSlash": false
+  "trailingSlash": false,
+  "rewrites": [
+    {
+      "source": "^(?!.*\\.\\w+$|.*/.well-known|.*/__).+$",
+      "destination": "/index.html"
+    }
+  ]
 }

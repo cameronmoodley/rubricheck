@@ -40,4 +40,4 @@ COPY --from=build /app/serve.json .
 
 EXPOSE 3001
 
-CMD ["serve", "-s", ".", "-l", "3001"]
+CMD ["serve", "-c", "serve.json", "-l", "3001"]
