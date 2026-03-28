@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.postgres
-    container_name: demo-rubricheck-postgres
+    container_name: rubricheck-postgres
     restart: always
     env_file: [.env]
     environment:
@@ -30,7 +30,7 @@ services:
     build:
       context: ../..
       dockerfile: backend/Dockerfile
-    container_name: demo-rubricheck-backend
+    container_name: rubricheck-backend
     restart: always
     env_file: [.env]
     environment:
@@ -69,7 +69,7 @@ services:
 
   n8n:
     image: n8nio/n8n:latest
-    container_name: demo-rubricheck-n8n
+    container_name: rubricheck-n8n
     restart: always
     env_file: [.env]
     environment:
@@ -101,7 +101,7 @@ services:
         # Moodle disabled by default - set in .env to enable
         VITE_MOODLE_WEB_SERVICE_URL: ${VITE_MOODLE_WEB_SERVICE_URL:-}
         VITE_WSTOKEN: ${VITE_WSTOKEN:-}
-    container_name: demo-rubricheck-frontend
+    container_name: rubricheck-frontend
     restart: always
     env_file: [.env]
     ports:
