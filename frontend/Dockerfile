@@ -22,8 +22,8 @@ ENV NODE_OPTIONS="--max-old-space-size=4096"
 # Copy all source first (node_modules excluded via .dockerignore)
 COPY frontend/ .
 
-# Ensure serve.json exists (create if missing, for backwards compatibility)
-RUN test -f serve.json || echo '{"cleanUrls": false, "trailingSlash": false}' > serve.json
+# Ensure serve.json exists with proper SPA routing that excludes ACME challenges
+RUN test -f serve.json || echo '{"cleanUrls": false, "trailingSlash": false, "rewrites": [{"source": "^(?!.*\\.\\w+$|.*/.well-known|.*/__).+$", "destination": "/index.html"}]}' > serve.json
 
 # Install all deps including devDependencies (Vite, TypeScript) for build
 RUN npm ci --include=dev --no-audit --no-fund --prefer-offline --silent && npm run build
