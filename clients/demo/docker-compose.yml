@@ -84,6 +84,10 @@ services:
     networks:
       - rubricheck-network
       - dokploy-network
+    labels:
+      - "dokploy.expose=true"
+      - "dokploy.domain=${N8N_DOMAIN}"
+      - "dokploy.port=5678"
     volumes:
       - n8n_data:/home/node/.n8n
 
