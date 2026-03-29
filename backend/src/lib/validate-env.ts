@@ -6,7 +6,7 @@ const required = [
 ] as const;
 
 const optionalButWarn = [
-  "N8N_WEBHOOK_URL",
+  "N8N_PAPER_WEBHOOK_URL",
   "N8N_EXAM_PROJECTS_WEBHOOK_URL",
   "N8N_MOODLE_WEB_HOOK",
   "RESEND_API_KEY",

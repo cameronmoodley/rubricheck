@@ -12,16 +12,59 @@ import { sanitizeErrorMessage } from "../lib/sanitize-error";
 import { sendGradingCompleteEmail } from "../lib/email";
 import { getTemplatePdfBase64 } from "../data/rubric-templates";
 import { textToPdfBuffer } from "../lib/text-to-pdf";
+import { getN8nRequestHeaders } from "../lib/n8n-client";
 
 const router = express.Router();
 const prisma = new PrismaClient();
 
-// n8n webhook URLs from env
-const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL;
+// n8n: N8N_WEBHOOK_URL = public base (docker-compose → n8n only). Paper grading = full webhook URL.
+const N8N_PAPER_WEBHOOK_URL =
+  process.env.N8N_PAPER_WEBHOOK_URL ||
+  (process.env.N8N_WEBHOOK_URL?.includes("/webhook/")
+    ? process.env.N8N_WEBHOOK_URL
+    : undefined);
 const N8N_EXAM_PROJECTS_WEBHOOK_URL =
   process.env.N8N_EXAM_PROJECTS_WEBHOOK_URL;
 
-import { getN8nRequestHeaders } from "../lib/n8n-client";
+/** POST to n8n webhook; logs status, path, and body preview on failure (helps debug 404 vs proxy). */
+async function postN8nWebhook(
+  url: string,
+  formData: FormData,
+  context: string
+): Promise<string> {
+  const n8nResponse = await fetch(url, {
+    method: "POST",
+    body: formData,
+    headers: getN8nRequestHeaders(),
+  });
+  const text = await n8nResponse.text();
+  if (!n8nResponse.ok) {
+    let pathname = "";
+    let host = "";
+    try {
+      const u = new URL(url);
+      pathname = u.pathname;
+      host = u.hostname;
+    } catch {
+      /* ignore */
+    }
+    logger.error(
+      {
+        context,
+        status: n8nResponse.status,
+        statusText: n8nResponse.statusText,
+        bodyPreview: text.slice(0, 500),
+        webhookHost: host,
+        webhookPath: pathname,
+      },
+      "n8n webhook request failed"
+    );
+    throw new Error(
+      `n8n request failed: ${n8nResponse.status} ${n8nResponse.statusText}`
+    );
+  }
+  return text;
+}
 
 // Parse section-based grade format (intro, introMark, main, mainMark, etc.) into sections + total score.
 // Supports: introduction/introductionMark, main/mainMark, solutionTechnical/solutionTechnicalMark, etc.
@@ -174,16 +217,18 @@ async function triggerNextPaper(submissionId: string): Promise<boolean> {
   formData.append("originalFilename", nextPaper.original_filename || "");
 
   const webhookUrl =
-    uploadType === "exam-projects" ? N8N_EXAM_PROJECTS_WEBHOOK_URL : N8N_WEBHOOK_URL;
+    uploadType === "exam-projects"
+      ? N8N_EXAM_PROJECTS_WEBHOOK_URL
+      : N8N_PAPER_WEBHOOK_URL;
 
   if (!webhookUrl) return false;
 
-  const n8nResponse = await fetch(webhookUrl, {
-    method: "POST",
-    body: formData,
-    headers: getN8nRequestHeaders(),
-  });
-  return n8nResponse.ok;
+  try {
+    await postN8nWebhook(webhookUrl, formData, "triggerNextPaper");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // POST /api/submissions - Upload papers for grading
@@ -428,13 +473,13 @@ router.post(
       const webhookUrl =
         uploadType === "exam-projects"
           ? N8N_EXAM_PROJECTS_WEBHOOK_URL
-          : N8N_WEBHOOK_URL;
+          : N8N_PAPER_WEBHOOK_URL;
 
       if (!webhookUrl) {
         const key =
           uploadType === "exam-projects"
             ? "N8N_EXAM_PROJECTS_WEBHOOK_URL"
-            : "N8N_WEBHOOK_URL";
+            : "N8N_PAPER_WEBHOOK_URL (or legacy N8N_WEBHOOK_URL with full /webhook/... URL)";
         throw new Error(`Missing ${key} in environment`);
       }
 
@@ -443,17 +488,11 @@ router.post(
         `Sending first ${uploadType === "exam-projects" ? "exam project" : "paper"} to n8n`
       );
 
-      const n8nResponse = await fetch(webhookUrl, {
-        method: "POST",
-        body: formData,
-        headers: getN8nRequestHeaders(),
-      });
-
-      if (!n8nResponse.ok) {
-        throw new Error(`n8n request failed: ${n8nResponse.statusText}`);
-      }
-
-      const n8nResult = await n8nResponse.text();
+      const n8nResult = await postN8nWebhook(
+        webhookUrl,
+        formData,
+        "submissionsFirstPaper"
+      );
       logger.debug({ n8nResult }, "n8n response");
 
       res.json({
@@ -1622,17 +1661,11 @@ router.post(
         throw new Error("Missing N8N_EXAM_PROJECTS_WEBHOOK_URL in environment");
       }
 
-      const n8nResponse = await fetch(N8N_EXAM_PROJECTS_WEBHOOK_URL, {
-        method: "POST",
-        body: formData,
-        headers: getN8nRequestHeaders(),
-      });
-
-      if (!n8nResponse.ok) {
-        throw new Error(`n8n request failed: ${n8nResponse.statusText}`);
-      }
-
-      const n8nResult = await n8nResponse.text();
+      const n8nResult = await postN8nWebhook(
+        N8N_EXAM_PROJECTS_WEBHOOK_URL,
+        formData,
+        "examProjectsFirstPaper"
+      );
       logger.debug({ n8nResult }, "Exam projects n8n response");
 
       res.json({
@@ -1932,22 +1965,18 @@ router.post(
             throw new Error("Missing N8N_EXAM_PROJECTS_WEBHOOK_URL in environment");
           }
 
-          const n8nResponse = await fetch(N8N_EXAM_PROJECTS_WEBHOOK_URL, {
-            method: "POST",
-            body: formData,
-            headers: getN8nRequestHeaders(),
-          });
-
-          if (n8nResponse.ok) {
+          try {
+            await postN8nWebhook(
+              N8N_EXAM_PROJECTS_WEBHOOK_URL,
+              formData,
+              "examProjectsNextPaper"
+            );
             logger.info(
               { filename: nextPaper.original_filename },
               "Successfully triggered next exam project"
             );
-          } else {
-            logger.error(
-              { statusText: n8nResponse.statusText },
-              "Failed to trigger next exam project"
-            );
+          } catch {
+            /* postN8nWebhook already logged */
           }
         } else {
           // All exam projects graded, mark submission as completed and cleanup buffers
