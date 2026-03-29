@@ -77,10 +77,11 @@ services:
       DB_TYPE: postgresdb
       DB_POSTGRESDB_HOST: ${DB_HOST}
       DB_POSTGRESDB_PORT: ${DB_PORT}
+      # Same DB instance + DB_NAME as backend; n8n tables in schema "n8n", Prisma stays in "public"
       DB_POSTGRESDB_DATABASE: ${DB_NAME}
       DB_POSTGRESDB_USER: ${DB_USER}
       DB_POSTGRESDB_PASSWORD: ${DB_PASSWORD}
-      DB_POSTGRESDB_SCHEMA: public
+      DB_POSTGRESDB_SCHEMA: n8n
 
       N8N_BASIC_AUTH_ACTIVE: "${N8N_BASIC_AUTH_ACTIVE}"
       N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}

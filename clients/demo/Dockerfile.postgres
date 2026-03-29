@@ -1,4 +1,6 @@
 FROM postgres:15-alpine
 
-# RubriCheck uses Prisma for schema - no init script needed.
-# Postgres starts with empty DB; backend runs prisma db push on startup.
+COPY docker-entrypoint-initdb.d/ /docker-entrypoint-initdb.d/
+
+# RubriCheck: Prisma on public. n8n: schema "n8n" (see 01-n8n-schema.sql).
+# Existing DB volumes: run once: CREATE SCHEMA IF NOT EXISTS n8n;
